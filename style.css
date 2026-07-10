@@ -33,8 +33,8 @@ html, body {
 }
 
 #hud {
-  width: var(--board-w, 448px);
-  max-width: min(100vw - 16px, var(--board-w, 448px));
+  width: var(--board-w, 840px);
+  max-width: min(100vw - 16px, var(--board-w, 840px));
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -66,7 +66,7 @@ html, body {
   box-shadow: 0 0 36px rgba(244, 196, 48, 0.25);
   border: 3px solid #f4c430;
   flex-shrink: 1;
-  max-width: min(100vw - 16px, var(--board-w, 448px));
+  max-width: min(100vw - 16px, var(--board-w, 840px));
 }
 
 #game {
@@ -74,7 +74,7 @@ html, body {
   background: #5c3a1e;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  width: min(100vw - 16px, var(--board-w, 448px));
+  width: min(100vw - 16px, var(--board-w, 840px));
   height: auto;
   max-height: calc(100dvh - 48px);
   touch-action: none;
@@ -149,8 +149,8 @@ html, body {
 }
 
 #footer {
-  width: var(--board-w, 448px);
-  max-width: min(100vw - 16px, var(--board-w, 448px));
+  width: var(--board-w, 840px);
+  max-width: min(100vw - 16px, var(--board-w, 840px));
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -195,7 +195,7 @@ html, body {
 
 #mobile-controls {
   display: none;
-  width: min(100vw - 16px, var(--board-w, 448px));
+  width: min(100vw - 16px, var(--board-w, 840px));
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -309,13 +309,13 @@ html, body {
     max-height: calc(100dvh - 220px);
     width: min(
       100vw - 16px,
-      var(--board-w, 448px),
-      calc((100dvh - 220px) * 448 / 576)
+      var(--board-w, 840px),
+      calc((100dvh - 220px) * 840 / 1008)
     );
   }
 
   #hud, #footer, #mobile-controls {
-    width: min(100vw - 16px, var(--board-w, 448px));
+    width: min(100vw - 16px, var(--board-w, 840px));
   }
 
   .hud-block .label { font-size: 7px; }
@@ -328,7 +328,7 @@ html, body {
        (max-height: 700px) and (pointer: coarse) {
   #game {
     max-height: calc(100dvh - 180px);
-    width: min(100vw - 16px, calc((100dvh - 180px) * 448 / 576));
+    width: min(100vw - 16px, calc((100dvh - 180px) * 840 / 1008));
   }
   #dpad {
     grid-template-columns: 46px 46px 46px;

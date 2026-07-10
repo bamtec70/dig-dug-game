@@ -5,12 +5,13 @@
 (() => {
   "use strict";
 
-  // ── Board (arcade-ish proportions) ───────────────────────────────────────
-  const TILE = 28;
+  // ── Board (arcade-ish proportions) — 2× display size ─────────────────────
+  const TILE = 56;       // was 28; full board is twice as large
+  const S = TILE / 28;   // sprite/UI scale (2)
   const COLS = 15;
   const ROWS = 18;       // 0–1 surface, 2+ dirt
-  const W = COLS * TILE;
-  const H = ROWS * TILE;
+  const W = COLS * TILE; // 840
+  const H = ROWS * TILE; // 1008
   const SURFACE = 2;
 
   const EMPTY = 0, DIRT = 1, ROCK = 2;
@@ -35,12 +36,12 @@
     { e: "🍄", p: 4000 }, { e: "🍍", p: 5000 },
   ];
 
-  // Speeds (px/sec) — Dig Dug a bit faster than monsters in tunnels
-  const SPD_DIG = 105;
-  const SPD_DIG_DIRT = 70;   // slower while carving
-  const SPD_ENEMY = 72;
-  const SPD_GHOST = 58;
-  const SPD_ROCK = 220;
+  // Speeds (px/sec) — scaled with TILE so feel matches the larger board
+  const SPD_DIG = 210;
+  const SPD_DIG_DIRT = 140;  // slower while carving
+  const SPD_ENEMY = 144;
+  const SPD_GHOST = 116;
+  const SPD_ROCK = 440;
 
   // ── DOM ──────────────────────────────────────────────────────────────────
   const canvas = document.getElementById("game");
@@ -173,7 +174,7 @@
   }
 
   // Grid alignment — only for turn decisions (must be << one frame of movement)
-  const ALIGN = 1.2;
+  const ALIGN = 2.4; // keep << one frame of movement at 2× scale
   function atCenter(e) {
     return Math.abs(e.x - midX(nearestCol(e.x))) <= ALIGN
       && Math.abs(e.y - midY(nearestRow(e.y))) <= ALIGN;
@@ -865,30 +866,30 @@
     // Clouds
     ctx.fillStyle = "rgba(255,255,255,0.55)";
     for (let i = 0; i < 3; i++) {
-      const cx = (i * 97 + 40 + (time * 0.01) % W) % (W + 40) - 20;
+      const cx = (i * 97 * S + 40 * S + (time * 0.01 * S) % W) % (W + 40 * S) - 20 * S;
       ctx.beginPath();
-      ctx.arc(cx, 18, 10, 0, Math.PI * 2);
-      ctx.arc(cx + 12, 16, 12, 0, Math.PI * 2);
-      ctx.arc(cx + 24, 18, 9, 0, Math.PI * 2);
+      ctx.arc(cx, 18 * S, 10 * S, 0, Math.PI * 2);
+      ctx.arc(cx + 12 * S, 16 * S, 12 * S, 0, Math.PI * 2);
+      ctx.arc(cx + 24 * S, 18 * S, 9 * S, 0, Math.PI * 2);
       ctx.fill();
     }
 
     // Grass
     ctx.fillStyle = "#3cb043";
-    ctx.fillRect(0, SURFACE * TILE - 8, W, 8);
+    ctx.fillRect(0, SURFACE * TILE - 8 * S, W, 8 * S);
     // Flowers
     for (let c = 0; c < COLS; c++) {
       const fx = midX(c);
-      const fy = SURFACE * TILE - 12;
+      const fy = SURFACE * TILE - 12 * S;
       ctx.fillStyle = c % 3 === 0 ? "#ff5577" : c % 3 === 1 ? "#ffee55" : "#ffffff";
       ctx.beginPath();
-      ctx.arc(fx, fy + Math.sin(flowerPhase / 400 + c) * 1.5, 2.5, 0, Math.PI * 2);
+      ctx.arc(fx, fy + Math.sin(flowerPhase / 400 + c) * 1.5 * S, 2.5 * S, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = "#2a8020";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1 * S;
       ctx.beginPath();
-      ctx.moveTo(fx, fy + 2);
-      ctx.lineTo(fx, SURFACE * TILE - 2);
+      ctx.moveTo(fx, fy + 2 * S);
+      ctx.lineTo(fx, SURFACE * TILE - 2 * S);
       ctx.stroke();
     }
 
@@ -902,19 +903,19 @@
           ctx.fillStyle = "#0c0602";
           ctx.fillRect(x, y, TILE, TILE);
           ctx.strokeStyle = DIRT_EDGE[band];
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2 * S;
           // only draw edges adjacent to dirt
           if (c === 0 || map[r][c - 1] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x + 1, y); ctx.lineTo(x + 1, y + TILE); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x + S, y); ctx.lineTo(x + S, y + TILE); ctx.stroke();
           }
           if (c === COLS - 1 || map[r][c + 1] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x + TILE - 1, y); ctx.lineTo(x + TILE - 1, y + TILE); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x + TILE - S, y); ctx.lineTo(x + TILE - S, y + TILE); ctx.stroke();
           }
           if (r === SURFACE || map[r - 1][c] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x, y + 1); ctx.lineTo(x + TILE, y + 1); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x, y + S); ctx.lineTo(x + TILE, y + S); ctx.stroke();
           }
           if (r === ROWS - 1 || map[r + 1][c] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x, y + TILE - 1); ctx.lineTo(x + TILE, y + TILE - 1); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x, y + TILE - S); ctx.lineTo(x + TILE, y + TILE - S); ctx.stroke();
           }
         } else {
           // Dirt (or rock cell base)
@@ -922,7 +923,7 @@
           ctx.fillRect(x, y, TILE, TILE);
           // Horizontal strata lines
           ctx.strokeStyle = "rgba(0,0,0,0.12)";
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 1 * S;
           ctx.beginPath();
           ctx.moveTo(x, y + TILE * 0.35);
           ctx.lineTo(x + TILE, y + TILE * 0.35);
@@ -932,15 +933,15 @@
           // Partial dig
           if (map[r][c] === DIRT && dug[r][c] > 0.05 && dug[r][c] < 1) {
             ctx.fillStyle = "#0c0602";
-            const s = dug[r][c] * TILE * 0.9;
+            const hole = dug[r][c] * TILE * 0.9;
             ctx.beginPath();
-            ctx.arc(x + TILE / 2, y + TILE / 2, s / 2, 0, Math.PI * 2);
+            ctx.arc(x + TILE / 2, y + TILE / 2, hole / 2, 0, Math.PI * 2);
             ctx.fill();
           }
           // Speckles
           ctx.fillStyle = "rgba(0,0,0,0.15)";
-          ctx.fillRect(x + 5, y + 7, 2, 2);
-          ctx.fillRect(x + 16, y + 18, 2, 2);
+          ctx.fillRect(x + 5 * S, y + 7 * S, 2 * S, 2 * S);
+          ctx.fillRect(x + 16 * S, y + 18 * S, 2 * S, 2 * S);
         }
       }
     }
@@ -953,119 +954,115 @@
   function drawRock(x, y) {
     ctx.fillStyle = "#7a7a7a";
     ctx.beginPath();
-    ctx.moveTo(x - 2, y - 11);
-    ctx.lineTo(x + 11, y - 5);
-    ctx.lineTo(x + 10, y + 11);
-    ctx.lineTo(x - 11, y + 10);
-    ctx.lineTo(x - 12, y - 3);
+    ctx.moveTo(x - 2 * S, y - 11 * S);
+    ctx.lineTo(x + 11 * S, y - 5 * S);
+    ctx.lineTo(x + 10 * S, y + 11 * S);
+    ctx.lineTo(x - 11 * S, y + 10 * S);
+    ctx.lineTo(x - 12 * S, y - 3 * S);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = "#9a9a9a";
     ctx.beginPath();
-    ctx.moveTo(x - 2, y - 11);
-    ctx.lineTo(x + 6, y - 8);
-    ctx.lineTo(x + 2, y);
-    ctx.lineTo(x - 8, y - 2);
+    ctx.moveTo(x - 2 * S, y - 11 * S);
+    ctx.lineTo(x + 6 * S, y - 8 * S);
+    ctx.lineTo(x + 2 * S, y);
+    ctx.lineTo(x - 8 * S, y - 2 * S);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = "#555";
-    ctx.fillRect(x - 4, y + 2, 3, 2);
-    ctx.fillRect(x + 3, y + 5, 2, 2);
+    ctx.fillRect(x - 4 * S, y + 2 * S, 3 * S, 2 * S);
+    ctx.fillRect(x + 3 * S, y + 5 * S, 2 * S, 2 * S);
   }
 
   function drawDigDug() {
     if (!digdug) return;
     const x = digdug.x, y = digdug.y;
-    const face = digdug.dir.x < 0 ? -1 : digdug.dir.id === "L" ? -1 : 1;
-    const facingLeft = digdug.dir.id === "L" || (digdug.dir.id === "U" && face < 0);
     const fl = digdug.dir.id === "L" ? -1 : digdug.dir.id === "R" ? 1 : (hold && hold.id === "L" ? -1 : 1);
 
     if (digdug.dead) {
       ctx.fillStyle = "#fff";
       ctx.globalAlpha = 0.8;
       ctx.beginPath();
-      ctx.arc(x, y, 10, 0, Math.PI * 2);
+      ctx.arc(x, y, 10 * S, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
       ctx.strokeStyle = "#c00";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 * S;
       ctx.beginPath();
-      ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6);
-      ctx.moveTo(x + 6, y - 6); ctx.lineTo(x - 6, y + 6);
+      ctx.moveTo(x - 6 * S, y - 6 * S); ctx.lineTo(x + 6 * S, y + 6 * S);
+      ctx.moveTo(x + 6 * S, y - 6 * S); ctx.lineTo(x - 6 * S, y + 6 * S);
       ctx.stroke();
       return;
     }
 
-    const bob = Math.sin(digdug.walk / 80) * 1.2;
+    const bob = Math.sin(digdug.walk / 80) * 1.2 * S;
     const yy = y + bob;
 
     // Shadow
     ctx.fillStyle = "rgba(0,0,0,0.25)";
     ctx.beginPath();
-    ctx.ellipse(x, y + 12, 9, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y + 12 * S, 9 * S, 3 * S, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Legs
     ctx.fillStyle = "#1a3aaa";
-    const leg = Math.sin(digdug.walk / 70) * 3;
-    ctx.fillRect(x - 6, yy + 6, 4, 7 + leg);
-    ctx.fillRect(x + 2, yy + 6, 4, 7 - leg);
+    const leg = Math.sin(digdug.walk / 70) * 3 * S;
+    ctx.fillRect(x - 6 * S, yy + 6 * S, 4 * S, 7 * S + leg);
+    ctx.fillRect(x + 2 * S, yy + 6 * S, 4 * S, 7 * S - leg);
 
     // Body (white overalls)
     ctx.fillStyle = "#f5f5f5";
-    ctx.fillRect(x - 8, yy - 10, 16, 18);
+    ctx.fillRect(x - 8 * S, yy - 10 * S, 16 * S, 18 * S);
 
     // Blue pants/boots detail
     ctx.fillStyle = "#2244cc";
-    ctx.fillRect(x - 8, yy + 2, 16, 7);
+    ctx.fillRect(x - 8 * S, yy + 2 * S, 16 * S, 7 * S);
 
     // Head
     ctx.fillStyle = "#ffdbac";
     ctx.beginPath();
-    ctx.arc(x, yy - 12, 7, 0, Math.PI * 2);
+    ctx.arc(x, yy - 12 * S, 7 * S, 0, Math.PI * 2);
     ctx.fill();
 
     // Helmet / hair white
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
-    ctx.arc(x, yy - 14, 7.5, Math.PI, 0);
+    ctx.arc(x, yy - 14 * S, 7.5 * S, Math.PI, 0);
     ctx.fill();
-    ctx.fillRect(x - 7.5, yy - 14, 15, 4);
+    ctx.fillRect(x - 7.5 * S, yy - 14 * S, 15 * S, 4 * S);
 
     // Eyes
     ctx.fillStyle = "#222";
     ctx.beginPath();
-    ctx.arc(x + fl * 2.5, yy - 13, 1.4, 0, Math.PI * 2);
+    ctx.arc(x + fl * 2.5 * S, yy - 13 * S, 1.4 * S, 0, Math.PI * 2);
     ctx.fill();
 
     // Pump harpoon gun
     ctx.fillStyle = "#cc2222";
-    ctx.fillRect(x + fl * 5, yy - 3, fl * 11, 5);
+    ctx.fillRect(x + fl * 5 * S, yy - 3 * S, fl * 11 * S, 5 * S);
     ctx.fillStyle = "#888";
-    ctx.fillRect(x + fl * 14, yy - 2, fl * 4, 3);
+    ctx.fillRect(x + fl * 14 * S, yy - 2 * S, fl * 4 * S, 3 * S);
 
     // Hose when pumping
     if (hose) {
       const hx = x + hose.dir.x * hose.len * TILE;
       const hy = y + hose.dir.y * hose.len * TILE;
       ctx.strokeStyle = "#e8e8e8";
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 3 * S;
       ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(x + hose.dir.x * 12, y);
-      // slight sag
-      const mx = (x + hx) / 2 + hose.dir.y * 4;
-      const my = (y + hy) / 2 + Math.abs(hose.dir.x) * 4;
+      ctx.moveTo(x + hose.dir.x * 12 * S, y);
+      const mx = (x + hx) / 2 + hose.dir.y * 4 * S;
+      const my = (y + hy) / 2 + Math.abs(hose.dir.x) * 4 * S;
       ctx.quadraticCurveTo(mx, my, hx, hy);
       ctx.stroke();
-      // nozzle
       ctx.fillStyle = "#aaa";
       ctx.beginPath();
-      ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+      ctx.arc(hx, hy, 4 * S, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#666";
       ctx.beginPath();
-      ctx.arc(hx, hy, 2, 0, Math.PI * 2);
+      ctx.arc(hx, hy, 2 * S, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -1073,14 +1070,14 @@
   function drawEnemy(e) {
     if (e.state === "dead") return;
     const inflate = e.inflate || 0;
-    const sc = 1 + inflate * 0.28;
+    const sc = S * (1 + inflate * 0.28);
     const x = e.x;
-    const y = e.y + Math.sin(e.bob / 180) * 1.5;
+    const y = e.y + Math.sin(e.bob / 180) * 1.5 * S;
 
     if (e.state === "crushed") {
       ctx.fillStyle = e.type === "pooka" ? "#aa3030" : "#2a7a30";
       ctx.beginPath();
-      ctx.ellipse(x, y + 6, 12, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, y + 6 * S, 12 * S, 4 * S, 0, 0, Math.PI * 2);
       ctx.fill();
       return;
     }
@@ -1088,95 +1085,83 @@
     if (e.state === "ghost") ctx.globalAlpha = 0.5 + 0.15 * Math.sin(e.bob / 100);
 
     if (e.type === "pooka") {
-      // Classic red round body + goggles
       ctx.fillStyle = inflate >= 3 ? "#ff9999" : "#e02020";
       ctx.beginPath();
       ctx.ellipse(x, y, 11 * sc, 12 * sc, 0, 0, Math.PI * 2);
       ctx.fill();
-      // body highlight
       ctx.fillStyle = "rgba(255,255,255,0.2)";
       ctx.beginPath();
       ctx.ellipse(x - 3 * sc, y - 4 * sc, 4 * sc, 5 * sc, 0, 0, Math.PI * 2);
       ctx.fill();
-      // goggles white
       ctx.fillStyle = "#fff";
       ctx.beginPath();
-      ctx.arc(x - 4.5 * sc, y - 2, 4.2 * sc, 0, Math.PI * 2);
-      ctx.arc(x + 4.5 * sc, y - 2, 4.2 * sc, 0, Math.PI * 2);
+      ctx.arc(x - 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
+      ctx.arc(x + 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = "#333";
-      ctx.lineWidth = 1.2;
+      ctx.lineWidth = 1.2 * S;
       ctx.beginPath();
-      ctx.arc(x - 4.5 * sc, y - 2, 4.2 * sc, 0, Math.PI * 2);
-      ctx.arc(x + 4.5 * sc, y - 2, 4.2 * sc, 0, Math.PI * 2);
+      ctx.arc(x - 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
+      ctx.arc(x + 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
       ctx.stroke();
-      // pupils look toward movement
       ctx.fillStyle = "#111";
-      const lx = e.dir.x * 1.5, ly = e.dir.y * 1.5;
+      const lx = e.dir.x * 1.5 * S, ly = e.dir.y * 1.5 * S;
       ctx.beginPath();
-      ctx.arc(x - 4.5 * sc + lx, y - 2 + ly, 1.6 * sc, 0, Math.PI * 2);
-      ctx.arc(x + 4.5 * sc + lx, y - 2 + ly, 1.6 * sc, 0, Math.PI * 2);
+      ctx.arc(x - 4.5 * sc + lx, y - 2 * S + ly, 1.6 * sc, 0, Math.PI * 2);
+      ctx.arc(x + 4.5 * sc + lx, y - 2 * S + ly, 1.6 * sc, 0, Math.PI * 2);
       ctx.fill();
-      // yellow feet
       ctx.fillStyle = "#e8c020";
-      ctx.fillRect(x - 9 * sc, y + 9 * sc, 7 * sc, 4);
-      ctx.fillRect(x + 2 * sc, y + 9 * sc, 7 * sc, 4);
+      ctx.fillRect(x - 9 * sc, y + 9 * sc, 7 * sc, 4 * S);
+      ctx.fillRect(x + 2 * sc, y + 9 * sc, 7 * sc, 4 * S);
     } else {
-      // Fygar — green dragon
       ctx.fillStyle = inflate >= 3 ? "#b0ffb0" : "#2db84a";
       ctx.beginPath();
       ctx.ellipse(x, y, 12 * sc, 10 * sc, 0, 0, Math.PI * 2);
       ctx.fill();
-      // snout
       const sx = e.dir.x >= 0 ? 1 : -1;
       ctx.beginPath();
-      ctx.ellipse(x + sx * 10 * sc, y + 1, 6 * sc, 5 * sc, 0, 0, Math.PI * 2);
+      ctx.ellipse(x + sx * 10 * sc, y + 1 * S, 6 * sc, 5 * sc, 0, 0, Math.PI * 2);
       ctx.fill();
-      // eye
       ctx.fillStyle = "#fff";
       ctx.beginPath();
-      ctx.arc(x + sx * 4, y - 3, 3.2, 0, Math.PI * 2);
+      ctx.arc(x + sx * 4 * S, y - 3 * S, 3.2 * S, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = "#111";
       ctx.beginPath();
-      ctx.arc(x + sx * 5, y - 3, 1.4, 0, Math.PI * 2);
+      ctx.arc(x + sx * 5 * S, y - 3 * S, 1.4 * S, 0, Math.PI * 2);
       ctx.fill();
-      // wing
       ctx.fillStyle = "#228b38";
       ctx.beginPath();
-      ctx.moveTo(x - sx * 2, y - 2);
-      ctx.lineTo(x - sx * 14, y - 12);
-      ctx.lineTo(x - sx * 4, y + 2);
+      ctx.moveTo(x - sx * 2 * S, y - 2 * S);
+      ctx.lineTo(x - sx * 14 * S, y - 12 * S);
+      ctx.lineTo(x - sx * 4 * S, y + 2 * S);
       ctx.closePath();
       ctx.fill();
-      // legs
       ctx.fillStyle = "#1e7a30";
-      ctx.fillRect(x - 6, y + 8 * sc, 5, 4);
-      ctx.fillRect(x + 2, y + 8 * sc, 5, 4);
+      ctx.fillRect(x - 6 * S, y + 8 * sc, 5 * S, 4 * S);
+      ctx.fillRect(x + 2 * S, y + 8 * sc, 5 * S, 4 * S);
 
-      // Fire
       if (e.fire) {
         const fx = e.fire.x, fy = e.fire.y;
-        const grd = ctx.createLinearGradient(fx, fy, fx + e.fire.dir.x * 28, fy);
+        const grd = ctx.createLinearGradient(fx, fy, fx + e.fire.dir.x * 28 * S, fy);
         grd.addColorStop(0, "#ff2200");
         grd.addColorStop(0.5, "#ff8800");
         grd.addColorStop(1, "#ffee44");
         ctx.fillStyle = grd;
         ctx.beginPath();
-        ctx.moveTo(fx, fy - 5);
-        ctx.lineTo(fx + e.fire.dir.x * 30, fy);
-        ctx.lineTo(fx, fy + 5);
+        ctx.moveTo(fx, fy - 5 * S);
+        ctx.lineTo(fx + e.fire.dir.x * 30 * S, fy);
+        ctx.lineTo(fx, fy + 5 * S);
         ctx.closePath();
         ctx.fill();
       }
     }
 
-    // Inflate outline
     if (inflate > 0) {
       ctx.strokeStyle = "rgba(255,255,255,0.55)";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 * S;
       ctx.beginPath();
-      ctx.arc(x, y, 12 + inflate * 5, 0, Math.PI * 2);
+      ctx.arc(x, y, (12 + inflate * 5) * S, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -1185,19 +1170,19 @@
 
   function drawVeg() {
     if (!veg) return;
-    ctx.font = "20px serif";
+    ctx.font = `${20 * S}px serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(veg.e, veg.x, veg.y + Math.sin(time / 200) * 2);
+    ctx.fillText(veg.e, veg.x, veg.y + Math.sin(time / 200) * 2 * S);
   }
 
   function drawPops() {
-    ctx.font = "9px 'Press Start 2P', monospace";
+    ctx.font = `${9 * S}px 'Press Start 2P', monospace`;
     ctx.textAlign = "center";
     for (const p of pops) {
       ctx.globalAlpha = clamp(p.t / 900, 0, 1);
       ctx.fillStyle = "#fff";
-      ctx.fillText(String(p.p), p.x, p.y - (900 - p.t) * 0.025);
+      ctx.fillText(String(p.p), p.x, p.y - (900 - p.t) * 0.025 * S);
     }
     ctx.globalAlpha = 1;
   }
@@ -1211,13 +1196,13 @@
 
     if (state === "ready") {
       ctx.fillStyle = "#f4c430";
-      ctx.font = "14px 'Press Start 2P', monospace";
+      ctx.font = `${14 * S}px 'Press Start 2P', monospace`;
       ctx.textAlign = "center";
       ctx.fillText("READY!", W / 2, H * 0.42);
     }
     if (state === "clear") {
       ctx.fillStyle = "#f4c430";
-      ctx.font = "12px 'Press Start 2P', monospace";
+      ctx.font = `${12 * S}px 'Press Start 2P', monospace`;
       ctx.textAlign = "center";
       ctx.fillText("STAGE CLEAR", W / 2, H * 0.42);
     }
