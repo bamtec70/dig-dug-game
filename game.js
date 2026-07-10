@@ -64,37 +64,128 @@
   const $hint = document.getElementById("overlay-hint");
   const $ctrl = document.getElementById("overlay-controls");
 
-  // ── Audio ────────────────────────────────────────────────────────────────
-  let audio = null, muted = false;
+  // ── Audio (Namco Dig Dug style synthesis) ────────────────────────────────
+  let audio = null, muted = false, noiseBuf = null, digStep = 0, lastWalkTone = 0;
   function unlockAudio() {
     if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
     if (audio.state === "suspended") audio.resume();
+    if (!noiseBuf && audio) {
+      const n = audio.sampleRate * 0.25 | 0;
+      noiseBuf = audio.createBuffer(1, n, audio.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    }
   }
-  function tone(freq, dur, type = "square", vol = 0.035, when = 0) {
+  function tone(freq, dur, type = "square", vol = 0.035, when = 0, slideTo) {
     if (muted || !audio) return;
     const t = audio.currentTime + when;
     const o = audio.createOscillator();
     const g = audio.createGain();
     o.type = type;
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(vol, t);
+    o.frequency.setValueAtTime(Math.max(20, freq), t);
+    if (slideTo != null) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     o.connect(g); g.connect(audio.destination);
-    o.start(t); o.stop(t + dur + 0.02);
+    o.start(t); o.stop(t + dur + 0.03);
   }
-  function sfx(name) {
+  function noise(dur, vol = 0.03, when = 0, filterFreq = 800) {
+    if (muted || !audio || !noiseBuf) return;
+    const t = audio.currentTime + when;
+    const src = audio.createBufferSource();
+    src.buffer = noiseBuf;
+    const f = audio.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = filterFreq;
+    const g = audio.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(audio.destination);
+    src.start(t); src.stop(t + dur + 0.02);
+  }
+  function seq(notes, type = "square", vol = 0.035) {
+    let t = 0;
+    for (const n of notes) {
+      const [f, d, gap = 0] = n;
+      if (f > 0) tone(f, d, type, vol, t);
+      t += d + gap;
+    }
+  }
+  function sfx(name, arg) {
     unlockAudio();
-    if (name === "dig") tone(85 + Math.random() * 20, 0.035, "triangle", 0.018);
-    else if (name === "pump") tone(160 + Math.random() * 50, 0.05, "square", 0.03);
-    else if (name === "pop") [350, 550, 850].forEach((f, i) => tone(f, 0.07, "square", 0.04, i * 0.05));
-    else if (name === "rock") tone(55, 0.22, "sawtooth", 0.045);
-    else if (name === "die") { for (let i = 0; i < 8; i++) tone(320 - i * 32, 0.07, "sawtooth", 0.03, i * 0.05); }
-    else if (name === "start") [294, 370, 440, 587].forEach((f, i) => tone(f, 0.1, "square", 0.035, i * 0.1));
-    else if (name === "clear") [392, 494, 587, 784].forEach((f, i) => tone(f, 0.1, "square", 0.035, i * 0.1));
-    else if (name === "veg") { tone(700, 0.06); tone(1000, 0.1, "square", 0.03, 0.06); }
-    else if (name === "1up") [523, 659, 784].forEach((f, i) => tone(f, 0.08, "square", 0.035, i * 0.08));
-    else if (name === "fire") tone(180, 0.14, "sawtooth", 0.03);
-    else if (name === "ghost") tone(120, 0.08, "triangle", 0.02);
+    if (muted || !audio) return;
+
+    if (name === "dig") {
+      // Dirt scrape: noise + low thunk
+      noise(0.04, 0.04, 0, 600 + Math.random() * 400);
+      tone(70 + Math.random() * 25, 0.045, "triangle", 0.025);
+      // Light walking motif tick (arcade dig rhythm)
+      digStep = (digStep + 1) % 4;
+      const walkNotes = [262, 294, 330, 294];
+      tone(walkNotes[digStep], 0.04, "square", 0.012);
+    } else if (name === "walk") {
+      // Soft tunnel footstep motif while moving in open tunnels
+      if (time - lastWalkTone < 90) return;
+      lastWalkTone = time;
+      digStep = (digStep + 1) % 8;
+      // Simplified Dig Dug march: bouncing 8-step pattern
+      const march = [330, 0, 392, 0, 330, 294, 262, 294];
+      const f = march[digStep];
+      if (f) tone(f, 0.05, "square", 0.014);
+    } else if (name === "pump") {
+      // Inflate: rising pitch per pump stage (arg = inflate 1–4)
+      const stage = Math.max(1, Math.min(4, arg || 1));
+      const f0 = 140 + stage * 55;
+      tone(f0, 0.08, "square", 0.035, 0, f0 * 1.35);
+      tone(f0 * 0.5, 0.07, "triangle", 0.02);
+      noise(0.05, 0.015, 0, 1500);
+    } else if (name === "pop") {
+      // Monster pop / explode
+      noise(0.12, 0.05, 0, 2000);
+      tone(400, 0.08, "square", 0.04, 0, 180);
+      tone(600, 0.1, "square", 0.035, 0.04, 120);
+      tone(900, 0.06, "triangle", 0.025, 0.02);
+    } else if (name === "rock") {
+      // Boulder: deep thud + gravel
+      noise(0.2, 0.06, 0, 350);
+      tone(45, 0.25, "sine", 0.06);
+      tone(70, 0.15, "triangle", 0.035, 0.02, 40);
+    } else if (name === "die") {
+      // Dig Dug death — falling with noise
+      for (let i = 0; i < 10; i++) {
+        tone(360 - i * 28, 0.06, "square", 0.03, i * 0.055);
+      }
+      noise(0.25, 0.035, 0.15, 700);
+    } else if (name === "start") {
+      // Opening fanfare (arcade-ish Dig Dug greeting)
+      seq([
+        [392, 0.1, 0.02], [494, 0.1, 0.02], [587, 0.1, 0.02], [784, 0.14, 0.05],
+        [659, 0.09, 0.02], [587, 0.09, 0.02], [523, 0.09, 0.02], [494, 0.16, 0],
+      ], "square", 0.034);
+    } else if (name === "clear") {
+      seq([
+        [523, 0.08, 0.02], [659, 0.08, 0.02], [784, 0.08, 0.02],
+        [1047, 0.12, 0.04], [988, 0.08, 0.02], [1047, 0.16, 0],
+      ], "square", 0.036);
+    } else if (name === "veg") {
+      tone(660, 0.06, "square", 0.035);
+      tone(880, 0.07, "square", 0.04, 0.05);
+      tone(1320, 0.1, "triangle", 0.025, 0.1);
+    } else if (name === "1up") {
+      seq([
+        [523, 0.07, 0.01], [659, 0.07, 0.01], [784, 0.07, 0.01], [1047, 0.14, 0],
+      ], "square", 0.038);
+    } else if (name === "fire") {
+      // Fygar breath: noise roar + low saw
+      noise(0.18, 0.05, 0, 900);
+      tone(110, 0.16, "sawtooth", 0.03, 0, 70);
+      tone(180, 0.12, "square", 0.015, 0.02, 90);
+    } else if (name === "ghost") {
+      // Balloon ghost float
+      tone(220, 0.12, "triangle", 0.02, 0, 440);
+      tone(330, 0.1, "sine", 0.015, 0.05, 180);
+    }
   }
 
   // ── State ────────────────────────────────────────────────────────────────
@@ -430,6 +521,9 @@
     digCell(nearestCol(digdug.x), nearestRow(digdug.y));
     digdug.walk += dt;
     if (digdug.digAnim > 0) digdug.digAnim -= dt * 0.008;
+    // Soft march while moving through open tunnels (arcade walking music feel)
+    const onTunnel = isTunnel(nearestCol(digdug.x), nearestRow(digdug.y));
+    if (onTunnel && !carving && sp > 0) sfx("walk");
   }
 
   // ── Pump ─────────────────────────────────────────────────────────────────
@@ -470,7 +564,7 @@
           if (e.inflateT > 200) {
             e.inflate = Math.min(4, e.inflate + 1);
             e.inflateT = 0;
-            sfx("pump");
+            sfx("pump", e.inflate);
             if (e.inflate >= 4) {
               popEnemy(e);
               stopPump();
