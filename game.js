@@ -5,13 +5,15 @@
 (() => {
   "use strict";
 
-  // ── Board (arcade-ish proportions) — 2× display size ─────────────────────
-  const TILE = 56;       // was 28; full board is twice as large
-  const S = TILE / 28;   // sprite/UI scale (2)
+  // ── Board ────────────────────────────────────────────────────────────────
+  // Vertical arcade shape (narrower than tall), sized to match Ms. Pac-Man
+  // on-screen presence: Ms. Pac ≈ 672×744; Dig Dug ≈ 720×864 (taller).
+  const TILE = 48;
+  const S = TILE / 28;   // sprite scale vs original 28px art
   const COLS = 15;
-  const ROWS = 18;       // 0–1 surface, 2+ dirt
-  const W = COLS * TILE; // 840
-  const H = ROWS * TILE; // 1008
+  const ROWS = 18;       // 0–1 surface, 2+ dirt — more vertical than Pac-Man
+  const W = COLS * TILE; // 720
+  const H = ROWS * TILE; // 864
   const SURFACE = 2;
 
   const EMPTY = 0, DIRT = 1, ROCK = 2;
@@ -36,12 +38,12 @@
     { e: "🍄", p: 4000 }, { e: "🍍", p: 5000 },
   ];
 
-  // Speeds (px/sec) — scaled with TILE so feel matches the larger board
-  const SPD_DIG = 210;
-  const SPD_DIG_DIRT = 140;  // slower while carving
-  const SPD_ENEMY = 144;
-  const SPD_GHOST = 116;
-  const SPD_ROCK = 440;
+  // Speeds (px/sec) — scaled with TILE (base was for 28px tiles)
+  const SPD_DIG = 105 * (TILE / 28);
+  const SPD_DIG_DIRT = 70 * (TILE / 28);
+  const SPD_ENEMY = 72 * (TILE / 28);
+  const SPD_GHOST = 58 * (TILE / 28);
+  const SPD_ROCK = 220 * (TILE / 28);
 
   // ── DOM ──────────────────────────────────────────────────────────────────
   const canvas = document.getElementById("game");
@@ -174,7 +176,7 @@
   }
 
   // Grid alignment — only for turn decisions (must be << one frame of movement)
-  const ALIGN = 2.4; // keep << one frame of movement at 2× scale
+  const ALIGN = 1.2 * (TILE / 28); // keep << one frame of movement
   function atCenter(e) {
     return Math.abs(e.x - midX(nearestCol(e.x))) <= ALIGN
       && Math.abs(e.y - midY(nearestRow(e.y))) <= ALIGN;

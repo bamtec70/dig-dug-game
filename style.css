@@ -12,7 +12,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Allow page scroll on desktop so the 2× board is not CSS-shrunk */
+  /* Desktop: allow scroll so the full vertical board is not CSS-shrunk */
   overflow: auto;
   user-select: none;
   -webkit-user-select: none;
@@ -32,9 +32,10 @@ html, body {
   max-width: 100vw;
 }
 
+/* Match Ms. Pac-Man footprint (~672px), Dig Dug is taller (vertical game) */
 #hud {
-  width: var(--board-w, 840px);
-  max-width: min(100vw - 16px, var(--board-w, 840px));
+  width: var(--board-w, 720px);
+  max-width: min(100vw - 16px, var(--board-w, 720px));
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -66,8 +67,8 @@ html, body {
   box-shadow: 0 0 36px rgba(244, 196, 48, 0.25);
   border: 3px solid #f4c430;
   flex-shrink: 0;
-  /* Desktop: full 2× board (840px). Only shrink when viewport is narrower. */
-  width: min(100vw - 16px, var(--board-w, 840px));
+  /* Full board width on desktop — no max-height shrink (that made it look tiny) */
+  width: min(100vw - 16px, var(--board-w, 720px));
 }
 
 #game {
@@ -75,9 +76,10 @@ html, body {
   background: #5c3a1e;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  /* Intrinsic canvas is 840×1008 — show at full CSS width (2× old 420px) */
   width: 100%;
   height: auto;
+  /* Critical: do NOT max-height the canvas on desktop — Dig Dug is tall;
+     max-height was scaling width down and making it look half of Ms. Pac-Man */
   touch-action: none;
 }
 
@@ -150,8 +152,8 @@ html, body {
 }
 
 #footer {
-  width: var(--board-w, 840px);
-  max-width: min(100vw - 16px, var(--board-w, 840px));
+  width: var(--board-w, 720px);
+  max-width: min(100vw - 16px, var(--board-w, 720px));
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -196,7 +198,7 @@ html, body {
 
 #mobile-controls {
   display: none;
-  width: min(100vw - 16px, var(--board-w, 840px));
+  width: min(100vw - 16px, var(--board-w, 720px));
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -301,7 +303,7 @@ html, body {
   50%, 100% { opacity: 0; }
 }
 
-/* Phones / touch: fit board + controls on screen */
+/* Phones / touch: fit tall board + controls */
 @media (max-width: 820px), (pointer: coarse) {
   html, body {
     overflow: hidden;
@@ -321,8 +323,8 @@ html, body {
     flex-shrink: 1;
     width: min(
       100vw - 16px,
-      var(--board-w, 840px),
-      calc((100dvh - 220px) * 840 / 1008)
+      var(--board-w, 720px),
+      calc((100dvh - 220px) * 720 / 864)
     );
   }
 
@@ -332,7 +334,7 @@ html, body {
   }
 
   #hud, #footer, #mobile-controls {
-    width: min(100vw - 16px, var(--board-w, 840px));
+    width: min(100vw - 16px, var(--board-w, 720px));
   }
 
   .hud-block .label { font-size: 7px; }
@@ -346,7 +348,7 @@ html, body {
   #canvas-wrap {
     width: min(
       100vw - 16px,
-      calc((100dvh - 180px) * 840 / 1008)
+      calc((100dvh - 180px) * 720 / 864)
     );
   }
   #game {
