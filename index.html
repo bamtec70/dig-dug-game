@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#1a0a00" />
+  <title>DIG DUG — 1982 Arcade Classic</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="game-wrapper">
+    <header id="hud">
+      <div class="hud-block">
+        <div class="label">1UP</div>
+        <div id="score">00</div>
+      </div>
+      <div class="hud-block">
+        <div class="label">HIGH SCORE</div>
+        <div id="high-score">00</div>
+      </div>
+      <div class="hud-block">
+        <div class="label">LEVEL</div>
+        <div id="level">1</div>
+      </div>
+    </header>
+
+    <div id="canvas-wrap">
+      <canvas id="game" width="448" height="576"></canvas>
+      <div id="overlay">
+        <div id="overlay-title">DIG DUG</div>
+        <div id="overlay-sub">INSERT COIN</div>
+        <div id="overlay-hint">PRESS SPACE OR TAP TO START</div>
+        <div id="overlay-controls">
+          ARROWS / WASD / D-PAD — MOVE &amp; DIG<br />
+          SPACE / PUMP — INFLATE ENEMIES<br />
+          M / MUTE — SOUND · PAUSE — PAUSE
+        </div>
+      </div>
+    </div>
+
+    <footer id="footer">
+      <div id="lives"></div>
+      <div id="veg-tray"></div>
+    </footer>
+
+    <div id="mobile-controls" aria-label="Touch controls">
+      <div class="mobile-side">
+        <button type="button" id="btn-pause" class="mobile-btn" aria-label="Pause">❚❚</button>
+        <button type="button" id="btn-mute" class="mobile-btn" aria-label="Mute">♪</button>
+      </div>
+      <div id="dpad" role="group" aria-label="Direction pad">
+        <button type="button" class="dpad-btn" data-dir="U" aria-label="Up">▲</button>
+        <button type="button" class="dpad-btn" data-dir="L" aria-label="Left">◀</button>
+        <button type="button" class="dpad-btn dpad-center" disabled aria-hidden="true"></button>
+        <button type="button" class="dpad-btn" data-dir="R" aria-label="Right">▶</button>
+        <button type="button" class="dpad-btn" data-dir="D" aria-label="Down">▼</button>
+      </div>
+      <div class="mobile-side">
+        <button type="button" id="btn-pump" class="mobile-btn pump-btn" aria-label="Pump">P</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
