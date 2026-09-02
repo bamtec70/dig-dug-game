@@ -10,7 +10,7 @@ A browser recreation of Namco’s **Dig Dug** (1982), companion to:
 
 **Live:** https://bamtec70.github.io/dig-dug-game/
 
-You should see **BUILD V3** on the title screen.
+You should see **BUILD V3** on the title screen. If nobody is playing, the cabinet runs an **attract demo** (a short autoplay slice of the round), then loops back to INSERT COIN. Space, tap, or the D-pad starts a real game.
 
 ```powershell
 cd C:\Users\bamte\dig-dug

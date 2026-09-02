@@ -785,6 +785,8 @@
   let level = 1, lives = 3, extra = false;
   let state = "title";
   let readyT = 0, dieT = 0, clearT = 0;
+  let titleT = 0, attractT = 0, overT = 0;
+  let attractPlay = false, attractStep = 0, attractPumpT = 0, attractStuck = 0;
   let time = 0, prev = 0;
   let digdug, enemies, rocks, hose, veg, pops;
   let hold = null;
@@ -873,11 +875,13 @@
 
   function addScore(n) {
     score += n;
-    if (score > high) {
-      high = score;
-      localStorage.setItem("digdug_high", String(high));
+    if (!attractPlay) {
+      if (score > high) {
+        high = score;
+        localStorage.setItem("digdug_high", String(high));
+      }
+      if (!extra && score >= 10000) { extra = true; lives++; sfx("1up"); }
     }
-    if (!extra && score >= 10000) { extra = true; lives++; sfx("1up"); }
     hud();
   }
 
@@ -1030,9 +1034,121 @@
 
   function beginGame() {
     unlockAudio();
+    stopPump();
+    hold = null;
+    attractPlay = false;
     score = 0; lives = 3; level = 1; extra = false; vegGot = [];
     walkStep = 0; walkDist = 0;
     beginLevel(1);
+  }
+
+  function goTitle() {
+    stopPump();
+    hold = null;
+    attractPlay = false;
+    pumping = false;
+    hose = null;
+    state = "title";
+    titleT = 4200;
+    buildLevel(1);
+    showOV("DIG DUG", "INSERT COIN", null);
+    hud();
+    $lives.innerHTML = "";
+    $score.textContent = pad(0);
+  }
+
+  function beginAttract() {
+    stopPump();
+    hold = null;
+    attractPlay = true;
+    attractStep = 0;
+    attractPumpT = 0;
+    attractStuck = 0;
+    attractT = 40000;
+    score = 0; extra = false; vegGot = [];
+    walkStep = 0; walkDist = 0;
+    buildLevel(1);
+    lives = 0;
+    hud();
+    $lives.innerHTML = "";
+    state = "attract";
+    hideOV();
+  }
+
+  // Cabinet demo path on round 1: walk the shaft, dig to a Pooka, pump, then dig down.
+  const ATTRACT_PATH = [
+    { c: 6, r: 2 },
+    { c: 10, r: 2 },
+    { pump: 1700 },
+    { c: 10, r: 6 },
+    { c: 10, r: 10 },
+    { pump: 1700 },
+    { c: 6, r: 10 },
+    { c: 3, r: 10 },
+    { pump: 2000 },
+  ];
+
+  function nearestLive() {
+    if (!digdug) return null;
+    let best = null, bestD = 1e9;
+    for (const e of enemies) {
+      if (e.state === "dead" || e.state === "crushed" || e.state === "escaped") continue;
+      const d = Math.hypot(e.x - digdug.x, e.y - digdug.y);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    return best;
+  }
+
+  function faceToward(tx, ty) {
+    const c = nearestCol(digdug.x), r = nearestRow(digdug.y);
+    const tc = nearestCol(tx), tr = nearestRow(ty);
+    let d;
+    if (Math.abs(tc - c) >= Math.abs(tr - r)) d = tc >= c ? R : L;
+    else d = tr >= r ? D : U;
+    hold = d;
+    digdug.dir = d;
+    digdug.next = d;
+    return d;
+  }
+
+  function attractSteer(dt) {
+    if (!digdug || digdug.dead) return;
+    if (attractStep >= ATTRACT_PATH.length) {
+      const e = nearestLive();
+      if (e) faceToward(e.x, e.y);
+      return;
+    }
+    const step = ATTRACT_PATH[attractStep];
+    if (step.pump) {
+      if (pumping) {
+        attractPumpT -= dt;
+        if (attractPumpT <= 0 || !hose || !hose.target) {
+          stopPump();
+          attractStep++;
+          attractStuck = 0;
+        }
+        return;
+      }
+      const e = nearestLive();
+      if (!e) { attractStep++; return; }
+      faceToward(e.x, e.y);
+      startPump();
+      attractPumpT = step.pump;
+      return;
+    }
+    const c = nearestCol(digdug.x), r = nearestRow(digdug.y);
+    if (atCenter(digdug) && c === step.c && r === step.r) {
+      attractStep++;
+      attractStuck = 0;
+      return;
+    }
+    if (c !== step.c) faceToward(midX(step.c), digdug.y);
+    else faceToward(digdug.x, midY(step.r));
+    attractStuck += dt;
+    if (attractStuck > 4000) {
+      attractStep++;
+      attractStuck = 0;
+    }
   }
 
   function canDigDugEnter(c, r) {
@@ -1107,7 +1223,7 @@
   }
 
   function startPump() {
-    if (state !== "play" || !digdug || digdug.dead) return;
+    if ((state !== "play" && state !== "attract") || !digdug || digdug.dead) return;
     pumping = true;
     hose = { dir: digdug.dir, len: 0, max: 4, target: null };
     sfx("harpoon");
@@ -1496,15 +1612,21 @@
   }
 
   function killPlayer() {
-    if (!digdug || digdug.dead || state !== "play") return;
+    if (!digdug || digdug.dead) return;
+    if (state !== "play" && state !== "attract") return;
     digdug.dead = true;
-    lives--;
-    hud();
-    sfx("die");
-    state = "die";
-    dieT = 1500;
     pumping = false;
     hose = null;
+    sfx("die");
+    if (attractPlay) {
+      state = "die";
+      dieT = 1600;
+      return;
+    }
+    lives--;
+    hud();
+    state = "die";
+    dieT = 1500;
   }
 
   function updateVeg(dt) {
@@ -1523,7 +1645,17 @@
 
   function update(dt) {
     time += dt;
-    if (state === "title" || state === "pause" || state === "over") return;
+    if (state === "pause") return;
+    if (state === "title") {
+      titleT -= dt;
+      if (titleT <= 0) beginAttract();
+      return;
+    }
+    if (state === "over") {
+      overT -= dt;
+      if (overT <= 0) goTitle();
+      return;
+    }
 
     if (state === "ready") {
       readyT -= dt;
@@ -1533,8 +1665,10 @@
     if (state === "die") {
       dieT -= dt;
       if (dieT <= 0) {
+        if (attractPlay) { goTitle(); return; }
         if (lives <= 0) {
           state = "over";
+          overT = 8000;
           sfx("over");
           showOV("GAME OVER", isTouchPrimary() ? "TAP TO RESTART" : "PRESS SPACE", "gameover");
           return;
@@ -1550,6 +1684,12 @@
       clearT -= dt;
       if (clearT <= 0) beginLevel(level + 1);
       return;
+    }
+
+    if (state === "attract") {
+      attractT -= dt;
+      if (attractT <= 0) { goTitle(); return; }
+      attractSteer(dt);
     }
 
     moveDigDug(dt);
@@ -1737,6 +1877,12 @@
       ctx.textAlign = "center";
       ctx.fillText("ROUND CLEAR", W / 2, H * 0.42);
     }
+    if (state === "attract" && (time / 480 | 0) % 2 === 0) {
+      ctx.fillStyle = "#ff2020";
+      ctx.font = "12px 'Press Start 2P', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("INSERT COIN", W / 2, TILE * 0.72);
+    }
   }
 
   function tick(ts) {
@@ -1752,6 +1898,10 @@
 
   function setDir(d) {
     if (!d) return;
+    if (state === "title" || state === "attract" || state === "over") {
+      beginGame();
+      return;
+    }
     hold = d;
     if (digdug && (state === "play" || state === "ready")) {
       digdug.next = d;
@@ -1764,7 +1914,7 @@
 
   function togglePauseOrStart() {
     unlockAudio();
-    if (state === "title" || state === "over") beginGame();
+    if (state === "title" || state === "over" || state === "attract") beginGame();
     else if (state === "play") {
       state = "pause";
       showOV("PAUSED", isTouchPrimary() ? "TAP TO RESUME" : "SPACE TO RESUME", "paused");
@@ -1787,7 +1937,7 @@
     if (e.key === "m" || e.key === "M") { toggleMute(); return; }
     if (e.code === "Space" || e.key === " ") {
       e.preventDefault();
-      if (state === "title" || state === "over" || state === "pause") togglePauseOrStart();
+      if (state === "title" || state === "over" || state === "attract" || state === "pause") togglePauseOrStart();
       else if (state === "play" && !pumping) startPump();
       return;
     }
@@ -1826,7 +1976,7 @@
     canvas.setPointerCapture?.(e.pointerId);
     swipe = { x: e.clientX, y: e.clientY, id: e.pointerId };
     unlockAudio();
-    if (state === "title" || state === "over") beginGame();
+    if (state === "title" || state === "over" || state === "attract") beginGame();
     else if (state === "pause") { state = "play"; hideOV(); }
   }, { passive: false });
   canvas.addEventListener("pointermove", (e) => {
@@ -1845,7 +1995,7 @@
   overlay.style.pointerEvents = "auto";
   overlay.addEventListener("click", () => {
     unlockAudio();
-    if (state === "title" || state === "over") beginGame();
+    if (state === "title" || state === "over" || state === "attract") beginGame();
     else if (state === "pause") { state = "play"; hideOV(); }
   });
 
@@ -1876,7 +2026,7 @@
     const d = DIR_BY_ID[btn.getAttribute("data-dir")];
     bindHoldButton(btn, () => {
       setDir(d);
-      if (state === "title" || state === "over") beginGame();
+      if (state === "title" || state === "over" || state === "attract") beginGame();
       else if (state === "pause") { state = "play"; hideOV(); }
     }, () => clearDir(d));
   });
@@ -1896,6 +2046,7 @@
   $high.textContent = pad(high);
   buildLevel(1);
   state = "title";
+  titleT = 4200;
   showOV("DIG DUG", "INSERT COIN", null);
   hud();
   $lives.innerHTML = "";
