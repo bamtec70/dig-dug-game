@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#1a0a00" />
-  <title>DIG DUG — 1982 Arcade Classic</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta name="theme-color" content="#000000" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <title>DIG DUG — Namco 1982 (Build V3)</title>
+  <link rel="stylesheet" href="digdug-v3.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
@@ -24,7 +25,7 @@
         <div id="high-score">00</div>
       </div>
       <div class="hud-block">
-        <div class="label">LEVEL</div>
+        <div class="label">ROUND</div>
         <div id="level">1</div>
       </div>
     </header>
@@ -34,11 +35,12 @@
       <div id="overlay">
         <div id="overlay-title">DIG DUG</div>
         <div id="overlay-sub">INSERT COIN</div>
-        <div id="overlay-hint">PRESS SPACE OR TAP TO START</div>
+        <div id="overlay-hint">BUILD V3 — PRESS SPACE OR TAP</div>
         <div id="overlay-controls">
           ARROWS / WASD / D-PAD — MOVE &amp; DIG<br />
-          SPACE / PUMP — INFLATE ENEMIES<br />
-          M / MUTE — SOUND · PAUSE — PAUSE
+          SPACE / HOLD PUMP — HARPOON, THEN INFLATE<br />
+          ROCKS CRUSH · LAST ENEMY FLEES TOP-LEFT<br />
+          M — MUTE · P — PAUSE
         </div>
       </div>
     </div>
@@ -66,6 +68,6 @@
     </div>
   </div>
 
-  <script src="game.js"></script>
+  <script src="digdug-v3.js?v=3.7"></script>
 </body>
 </html>
