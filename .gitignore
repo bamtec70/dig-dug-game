@@ -1,0 +1,8 @@
+ref-arcade/
+*.zip
+digdug.zip
+roms/
+tools/mame/
+_patch_*.js
+digdug-arcade-round1.png
+
