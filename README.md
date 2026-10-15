@@ -1,57 +1,27 @@
-# DIG DUG — 1982 Arcade Classic
+# DIG DUG — Namco 1982 web recreation
 
-A browser recreation of Namco’s **Dig Dug** (1982), companion to:
+**Live:** https://bamtec70.github.io/dig-dug-game/ · part of the [WTP Arcade](https://wethepeoplepress.com/games/)
 
-- [PAC-MAN](https://bamtec70.github.io/pacman-game/)
-- [MS. PAC-MAN](https://bamtec70.github.io/ms-pacman-game/)
-- [GALAGA](https://bamtec70.github.io/galaga-game/)
+Native 224×288 portrait screen (the cabinet's resolution), pixel-scaled. Every sprite is hand-authored pixel data in `game.js`, the dirt, font and HUD are drawn in code, and every sound is synthesized with Web Audio using a Namco WSG-style wavetable. No ROM data, samples or extracted images are included.
 
-## Play
+## Controls
+| Input | Action |
+|---|---|
+| Arrows / WASD | 4-way move & dig |
+| Space / Ctrl | Pump (fire harpoon, then tap or hold to inflate) |
+| 5 | Insert coin |
+| Enter / 1 | Start (Enter also coins if there are no credits) |
+| P / M | Pause / sound |
+| Touch | Hold the d-pad to run (slide to turn), big PUMP button, multi-touch; tap to coin/start |
 
-**Live:** https://bamtec70.github.io/dig-dug-game/
+## Game
+- Dirt in 4 strata; colours change every 4 rounds. Round 1 layout and colours measured from the arcade.
+- Pooka / Fygar pop: 200 / 300 / 400 / 500 by stratum, Fygar ×2 when pumped horizontally.
+- Rock crush: 1000 / 2500 / 4000 / 6000 / 8000 / 10000 / 12000 / 15000 for 1–8+ enemies.
+- Bonus vegetable after 2 dropped rocks: carrot 400, turnip 600, mushroom 800, cucumber 1000, eggplant 2000, pepper 3000, tomato 4000, onion 5000, watermelon 6000, Galaxian 7000, pineapple 8000.
+- Enemies turn into ghost eyes and drift through dirt; the last enemy flees to the top-left with the hurry-up music.
+- Walking music plays only while Dig Dug moves. Flowers count rounds (small = 1, big = 10). Extra life at 10,000, then every 40,000. Best-5 table with initials.
 
-You should see **BUILD V3** on the title screen. If nobody is playing, the cabinet runs an **attract demo** (a short autoplay slice of the round), then loops back to INSERT COIN. Space, tap, or the D-pad starts a real game.
+Debug: `?wave=N` (or `?round=N`) starts directly at round N; with it, the backquote key clears the round.
 
-```powershell
-cd C:\Users\bamte\dig-dug
-python -m http.server 8765
-```
-
-## How to play
-
-Dig through the dirt, inflate enemies with your pump until they pop, and drop rocks on them for big points. Clear all monsters to advance.
-
-### Desktop
-
-| Control | Action |
-|---------|--------|
-| **Arrows / WASD** | Move & dig |
-| **Space** (hold) | Pump / inflate enemy in front of you |
-| **P** | Pause |
-| **M** | Mute |
-
-### Phone / touch
-
-| Control | Action |
-|---------|--------|
-| **D-pad** | Move & dig |
-| **P button** (hold) | Pump |
-| **Swipe** on maze | Move |
-| **❚❚ / ♪** | Pause / mute |
-
-## Features
-
-- Four Namco dirt layers & capsule tunnels  
-- **Pooka** (orange, goggles) and **Fygar** (green dragon)  
-- Harpoon pump, inflate → pop (deeper = more points)  
-- Rocks crush; vegetable after the second rock  
-- Ghost-eyes through dirt; last enemy flees top-left  
-- Fygar fire stays in open tunnels  
-- Walk theme locked to footsteps  
-- Lives, high score, mobile / touch controls  
-
-## Files
-
-- `index.html` — page shell  
-- `digdug-v3.css` / `digdug-v3.js` — current live build  
-- `style.css` / `game.js` — older build, kept as backup  
+Fan recreation for personal / educational use. Not affiliated with Namco / Bandai Namco.

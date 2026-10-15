@@ -1,1472 +1,879 @@
-/**
- * DIG DUG — 1982 Namco / Atari Arcade Classic
- * Dig tunnels, pump Pookas & Fygars, crush with rocks.
- */
+/* DIG DUG - 1982 arcade-style browser tribute for the WTP Arcade.
+   Native 224x288 portrait screen. All graphics are hand-authored pixel maps drawn in code,
+   all sound is synthesized with Web Audio (Namco WSG-style wavetable). No ROM data or samples. */
+"use strict";
 (() => {
-  "use strict";
+const W = 224, H = 288, FPS = 60;
+const Q = new URLSearchParams(location.search);
+const START_ROUND = Math.max(0, parseInt(Q.get("wave") || Q.get("round") || "0", 10) || 0);
+const DEBUG = START_ROUND > 0 || Q.has("debug");
+const cv = document.getElementById("game"), ctx = cv.getContext("2d");
+ctx.imageSmoothingEnabled = false;
 
-  // ── Board ────────────────────────────────────────────────────────────────
-  // Vertical arcade shape (narrower than tall), sized to match Ms. Pac-Man
-  // on-screen presence: Ms. Pac ≈ 672×744; Dig Dug ≈ 720×864 (taller).
-  const TILE = 48;
-  const S = TILE / 28;   // sprite scale vs original 28px art
-  const COLS = 15;
-  const ROWS = 18;       // 0–1 surface, 2+ dirt — more vertical than Pac-Man
-  const W = COLS * TILE; // 720
-  const H = ROWS * TILE; // 864
-  const SURFACE = 2;
+/* ---------------- font (5x7, drawn bold like the Namco 8x8 set) ---------------- */
+const FONT = {
+A:"0e11111f111111",B:"1e11111e11111e",C:"0e11101010110e",D:"1e11111111111e",E:"1f10101e10101f",F:"1f10101e101010",
+G:"0e11101711110f",H:"1111111f111111",I:"0e04040404040e",J:"0101010111110e",K:"11121418141211",L:"1010101010101f",
+M:"111b1515111111",N:"11191513111111",O:"0e11111111110e",P:"1e11111e101010",Q:"0e11111115120d",R:"1e11111e141211",
+S:"0f10100e01011e",T:"1f040404040404",U:"1111111111110e",V:"1111111111110a04".slice(0,14),W:"1111111515150a",X:"11110a040a1111",
+Y:"11110a04040404",Z:"1f01020408101f","0":"0e11131519110e","1":"040c040404040e","2":"0e11010204081f","3":"1f02040201110e",
+"4":"02060a121f0202","5":"1f101e0101110e","6":"0608101e11110e","7":"1f010204080808","8":"0e11110e11110e","9":"0e11110f01020c",
+"-":"0000001f000000",".":"00000000000c0c","!":"04040404040004","©":"0e111719171 10e".replace(" ",""),"/":"01010204081010",
+"'":"04040800000000",":":"000c0c000c0c00","=":"00001f001f0000"};
+const GLYPH = {};
+for (const k in FONT) { const s = FONT[k], rows = []; for (let i = 0; i < 7; i++) rows.push(parseInt(s.substr(i * 2, 2), 16) || 0); GLYPH[k] = rows; }
+function text(str, x, y, col, align) {
+  str = String(str).toUpperCase();
+  if (align === "r") x -= str.length * 8; else if (align === "c") x -= (str.length * 8) >> 1;
+  ctx.fillStyle = col;
+  for (let i = 0; i < str.length; i++) {
+    const g = GLYPH[str[i]]; if (!g) continue;
+    for (let r = 0; r < 7; r++) { const b = g[r]; if (!b) continue;
+      for (let c = 0; c < 5; c++) if (b & (16 >> c)) ctx.fillRect(x + i * 8 + c + 1, y + r, 2, 1); }
+  }
+}
 
-  const EMPTY = 0, DIRT = 1, ROCK = 2;
+/* ---------------- sprites (hand-authored pixel maps) ---------------- */
+const PAL = { W:"#dedede", B:"#045fcb", b:"#2121de", R:"#fa0500", Y:"#dce205", G:"#00b806", K:"#000000", k:"#212121",
+  O:"#ff8c00", r:"#91490 3".replace(" ",""), d:"#512202", y:"#ffb800", P:"#ff6eb4", p:"#ff4040", g:"#7cff3c", w:"#ffffff", n:"#7a3e00", T:"#de9747", V:"#9a28d8" };
+function mk(rows, pal) {
+  const h = rows.length, w = rows[0].length, c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const ch = rows[j][i]; if (ch !== "." && (pal || PAL)[ch]) { x.fillStyle = (pal || PAL)[ch]; x.fillRect(i, j, 1, 1); } }
+  return c;
+}
+const S = {};
+S.dd = [mk([
+"................",
+"....WWWWW.......",
+"...WWWWWWWW.....",
+"..WWWWWWBBBB....",
+"..WWWWWBBWBBB...",
+"..WWWWWBBBBBB...",
+"..WWWWWWBBBB....",
+"...WWWWWWWW.....",
+"....BBWWWWBB....",
+"...WWBBWWWBBb...",
+"..WWWWBWWWWWb...",
+"..WWWWWWWWW.....",
+"...WWWWWWWW.....",
+"...BBB..WWW.....",
+"..BBBB...BBB....",
+"................"]), mk([
+"................",
+"....WWWWW.......",
+"...WWWWWWWW.....",
+"..WWWWWWBBBB....",
+"..WWWWWBBWBBB...",
+"..WWWWWBBBBBB...",
+"..WWWWWWBBBB....",
+"...WWWWWWWW.....",
+"....BBWWWWBB....",
+"...WWBBWWWBBb...",
+"..WWWWBWWWWWb...",
+"..WWWWWWWWW.....",
+"...WWWWWWWW.....",
+"....WWW.BBB.....",
+"....BBB.BBBB....",
+"................"])];
+S.ddPump = mk([
+"................",
+"....WWWWW.......",
+"...WWWWWWWW.....",
+"..WWWWWWBBBB....",
+"..WWWWWBBWBBB...",
+"..WWWWWBBBBBB...",
+"..WWWWWWBBBB....",
+"...WWWWWWWW.....",
+"....BBWWBBBBBBBB",
+"...WWWWWWWBBBBBB",
+"..WWWWWWWWW.....",
+"..WWWWWWWWW.....",
+"...WWWWWWWW.....",
+"...BBB..WWW.....",
+"..BBBB...BBB....",
+"................"]);
+S.pooka = [mk([
+"................",
+".....RRRRRR.....",
+"...RRRRRRRRRR...",
+"..RRRRRRRRRRRR..",
+"..RRYYYYYYYYRR..",
+".RRYYWWYYWWYYRR.",
+".RRYYKWYYKWYYRR.",
+".RRRYYYYYYYYRRR.",
+".RRRRRRRRRRRRRR.",
+".RRRRRRRRRRRRRR.",
+"..RRRRRRRRRRRR..",
+"..RRRRRRRRRRRR..",
+"...RRRRRRRRRR...",
+"...YYY....YYY...",
+"..YYYY....YYYY..",
+"................"]), mk([
+"................",
+".....RRRRRR.....",
+"...RRRRRRRRRR...",
+"..RRRRRRRRRRRR..",
+"..RRYYYYYYYYRR..",
+".RRYYWWYYWWYYRR.",
+".RRYYKWYYKWYYRR.",
+".RRRYYYYYYYYRRR.",
+".RRRRRRRRRRRRRR.",
+".RRRRRRRRRRRRRR.",
+"..RRRRRRRRRRRR..",
+"..RRRRRRRRRRRR..",
+"...RRRRRRRRRR...",
+"....YYY..YYY....",
+"....YYYY.YYYY...",
+"................"])];
+S.fygar = [mk([
+"................",
+".........G.G....",
+"........GGGGG...",
+".......GGGGGGG..",
+"......GGGGGRWG..",
+".G....GGGGGGGGGG",
+".GG..GGGGGGGWWWW",
+"..GGGGGGGGGG....",
+"..GGGWWWGGGG.G..",
+".GGGWWWWWGGGG...",
+".GGGWWWWWGG.....",
+"..GGWWWWGGG.....",
+"...GGGGGGG......",
+"...GGG..GGG.....",
+"..GGGG..GGGG....",
+"................"]), mk([
+"................",
+".........G.G....",
+"........GGGGG...",
+".......GGGGGGG..",
+"......GGGGGRWG..",
+"G.....GGGGGGGGGG",
+"GG...GGGGGGGWWWW",
+".GGGGGGGGGGG....",
+"..GGGWWWGGGG.G..",
+".GGGWWWWWGGGG...",
+".GGGWWWWWGG.....",
+"..GGWWWWGGG.....",
+"...GGGGGGG......",
+"....GGG.GGG.....",
+"....GGGG.GGGG...",
+"................"])];
+S.eyes = mk([
+"................","................","................","................",
+"...WWW....WWW...","..WWWWW..WWWWW..","..WWKKW..WWKKW..","..WWKKW..WWKKW..","...WWW....WWW...",
+"................","................","................","................","................","................","................"]);
+S.rock = mk([
+"................",
+"......rrr.......",
+"....rrTTrrr.....",
+"...rTTTrrrrd....",
+"..rTTrrrrrrrd...",
+"..rTrrrdrrrrd...",
+".rrrrrddrrrrrd..",
+".rTrrrrrrrrrrd..",
+".rrrrrrrrdrrrd..",
+"rrrrdrrrrrrrrdd.",
+"rrrrrrrrrrrrrrd.",
+".rrrrrrrdrrrrdd.",
+".ddrrrrrrrrddd..",
+"..dddddddddd....",
+"................",
+"................"]);
+S.rockHalf = mk([
+"................","................","................","................","................","................",
+"................","................","..r..rr...r.....",".rTr.rrd.rTr..r.","rrrd.rrdrrrd.rd.","rrdd..d.rrdd.dd.","................","................","................","................"]);
+S.galaxian = mk([
+"................","...B....B.......","...B....B.......","...BBBBBB.......","..RRBYYBRR......",".RRRBYYBRRR.....","RR.BBYYBB.RR....",
+"R..BYYYYB..R....","R...BYYB...R....","....B..B........","................","................","................","................","................","................"]);
+S.flowerS = mk([".W.","WYW",".W.",".G.","GG.",".G.",".G."]);
+S.flowerB = mk(["..R.R..",".RRRRR.","RRRYRRR",".RRRRR.","..R.R..","...G...",".G.G...","..GG.GG","...G...","...G..."]);
+const flip = {};
+function flipped(c) { if (flip[c.__id]) return flip[c.__id]; const f = document.createElement("canvas"); f.width = c.width; f.height = c.height;
+  const x = f.getContext("2d"); x.scale(-1, 1); x.drawImage(c, -c.width, 0); c.__id = c.__id || Math.random(); flip[c.__id] = f; return f; }
+// draw sprite at x,y (top-left of 16x16), facing: R L U D, scale around center
+function spr(c, x, y, face, sx, sy) {
+  sx = sx || 1; sy = sy || sx;
+  ctx.save(); ctx.translate(Math.round(x) + 8, Math.round(y) + 8);
+  if (face === "U") ctx.rotate(-Math.PI / 2); else if (face === "D") ctx.rotate(Math.PI / 2);
+  if (face === "L") ctx.scale(-sx, sy); else ctx.scale(sx, sy);
+  ctx.drawImage(c, -8, -8); ctx.restore();
+}
 
-  // Arcade layered soil (top → deep)
-  const DIRT_COLS = ["#e8a050", "#d08030", "#b06020", "#904818", "#703810", "#502808"];
-  const DIRT_EDGE = ["#f0b868", "#e09840", "#c07028", "#a05420", "#804418", "#603010"];
+/* ---------------- audio: Namco WSG-like wavetable synth ---------------- */
+let AC = null, master = null, WAVE = null, WAVE2 = null, noiseBuf = null;
+let muted = localStorage.getItem("digdug_muted") === "1";
+const muteBtn = document.getElementById("btn-mute");
+function audio() {
+  if (AC) { if (AC.state === "suspended") AC.resume(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+  master = AC.createGain(); master.gain.value = muted ? 0 : 0.32; master.connect(AC.destination);
+  // 32-sample 4-bit style waves rebuilt as harmonic series (bright pulse-ish lead, soft bass)
+  const re = new Float32Array(12), im = new Float32Array(12), im2 = new Float32Array(12);
+  [0, 1, .55, .38, .2, .16, .08, .06, .04, .03, .02, .01].forEach((v, i) => im[i] = v);
+  [0, 1, .15, .1, .02, 0, 0, 0, 0, 0, 0, 0].forEach((v, i) => im2[i] = v);
+  WAVE = AC.createPeriodicWave(re, im); WAVE2 = AC.createPeriodicWave(re, im2);
+  noiseBuf = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+  const d = noiseBuf.getChannelData(0); let v = 0;
+  for (let i = 0; i < d.length; i++) { if (i % 3 === 0) v = Math.random() * 2 - 1; d[i] = v; }
+}
+function setMute(m) { muted = m; localStorage.setItem("digdug_muted", m ? "1" : "0"); if (master) master.gain.value = m ? 0 : 0.32; if (muteBtn) muteBtn.textContent = m ? "SOUND OFF" : "SOUND ON"; }
+if (muteBtn) { muteBtn.textContent = muted ? "SOUND OFF" : "SOUND ON"; muteBtn.addEventListener("click", e => { audio(); setMute(!muted); muteBtn.blur(); }); }
+const mf = n => 440 * Math.pow(2, (n - 69) / 12);
+function tone(f, t, dur, vol, w, f2) {
+  if (!AC || f <= 0) return;
+  const o = AC.createOscillator(), g = AC.createGain();
+  if (w === "sq" || w === "triangle" || w === "sawtooth") o.type = w === "sq" ? "square" : w; else o.setPeriodicWave(w === 2 ? WAVE2 : WAVE);
+  o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + dur * 0.7); g.gain.linearRampToValueAtTime(0, t + dur);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
+}
+function noise(t, dur, vol, fc, fc2, q) {
+  if (!AC) return;
+  const s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
+  s.buffer = noiseBuf; f.type = "bandpass"; f.Q.value = q || 1; f.frequency.setValueAtTime(fc, t); if (fc2) f.frequency.exponentialRampToValueAtTime(fc2, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.linearRampToValueAtTime(0, t + dur);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + dur + 0.02);
+}
+const now = () => AC ? AC.currentTime + 0.01 : 0;
+function seq(notes, step, vol, w, t0) { // notes: [midi, len] ; 0 = rest
+  if (!AC) return 0; let t = t0 || now();
+  for (const [n, l] of notes) { if (n) tone(mf(n), t, step * l * 0.9, vol, w); t += step * l; }
+  return t;
+}
+// Walking theme (transcribed by ear/FFT from the reference, 8th notes ~ 0.125 s, plays only while moving)
+const WALK = [[76,1],[0,1],[81,1],[76,1],[76,1],[74,1],[72,1],[74,1],[67,1],[74,1],[0,1],[74,1],[74,1],[72,1],[71,1],[72,1],
+              [76,1],[0,1],[81,1],[76,1],[76,1],[74,1],[72,1],[74,1],[79,1],[77,1],[76,1],[74,1],[72,1],[0,1],[72,1],[0,1]];
+const WALK_BASS = [48,55,48,55,43,50,43,50,48,55,48,55,43,50,48,48];
+const WALK_STEP = 0.125;
+let walkPos = 0, walkAcc = 0;
+function walkTick(dt) { // advance only while Dig Dug moves
+  walkAcc -= dt;
+  if (walkAcc > 0 || !AC) return;
+  walkAcc += WALK_STEP;
+  const [n] = WALK[walkPos % WALK.length], t = now();
+  if (n) tone(mf(n), t, WALK_STEP * 0.8, 0.13, 1);
+  if (walkPos % 2 === 0) tone(mf(WALK_BASS[(walkPos >> 1) % WALK_BASS.length]), t, WALK_STEP * 1.6, 0.11, 2);
+  walkPos++;
+}
+// hurry-up (last enemy) - same motif, faster and a fourth higher, continuous
+let hurryOn = false, hurryNext = 0, hurryPos = 0;
+function hurryTick() {
+  if (!hurryOn || !AC) return;
+  const st = 0.085;
+  while (hurryNext < AC.currentTime + 0.15) {
+    if (hurryNext < AC.currentTime) hurryNext = AC.currentTime + 0.02;
+    const [n] = WALK[hurryPos % WALK.length]; if (n) tone(mf(n + 5), hurryNext, st * 0.8, 0.12, 1);
+    if (hurryPos % 2 === 0) tone(mf(WALK_BASS[(hurryPos >> 1) % WALK_BASS.length] + 5), hurryNext, st * 1.5, 0.1, 2);
+    hurryPos++; hurryNext += st;
+  }
+}
+const sfx = {
+  coin() { const t = now(); tone(mf(84), t, 0.05, 0.15, 1); tone(mf(91), t + 0.05, 0.08, 0.15, 1); },
+  start() { // opening tune: rising A-minor arpeggio then the "here we go" phrase
+    const t = seq([[69,1],[72,1],[76,1],[79,1],[76,1],[72,1],[69,2],[0,4]], 0.075, 0.14, 1);
+    seq([[79,2],[80,2],[79,2],[76,2],[74,2],[72,2],[74,2],[76,4],[0,2],[72,2],[74,2],[76,2],[79,6]], 0.09, 0.13, 1, t);
+    seq([[45,4],[52,4],[45,4],[52,4],[43,4],[50,4],[48,8]], 0.09, 0.1, 2, t);
+  },
+  harpoon() { const t = now(); tone(500, t, 0.09, 0.1, "sq", 1500); },
+  pump() { const t = now(); tone(mf(64), t, 0.05, 0.14, 1, mf(57)); noise(t, 0.06, 0.12, 3000, 1500, 2); },
+  pop() { const t = now(); noise(t, 0.18, 0.35, 2500, 300, 0.7); tone(1200, t, 0.12, 0.12, "sq", 150); },
+  rockWobble() { const t = now(); for (let i = 0; i < 4; i++) tone(i % 2 ? 180 : 210, t + i * 0.07, 0.05, 0.08, 1); },
+  rockFall() { const t = now(); tone(1400, t, 0.55, 0.1, 1, 350); },
+  crush() { const t = now(); noise(t, 0.35, 0.4, 700, 120, 0.6); tone(120, t, 0.25, 0.15, "triangle", 50); },
+  fire() { const t = now(); noise(t, 0.45, 0.25, 600, 2400, 1.2); tone(220, t, 0.45, 0.05, "sawtooth", 440); },
+  die() { stopMusic(); let t = now();
+    const run = [70,69,68,71,68,71,67,66,69,65,69,66,69,65,68,67,64,67,63,62,65,64];
+    for (const n of run) { tone(mf(n), t, 0.05, 0.13, 1); t += 0.055; }
+    t += 0.1; seq([[74,1],[73,1],[72,1],[0,1],[81,3]], 0.11, 0.13, 1, t); },
+  clear() { stopMusic(); seq([[72,1],[76,1],[79,1],[84,2],[79,1],[84,4],[0,2],[86,1],[84,1],[83,1],[84,4]], 0.09, 0.13, 1);
+    seq([[48,4],[55,4],[48,4],[43,4],[48,6]], 0.09, 0.1, 2); },
+  veg() { seq([[84,1],[88,1],[91,1],[96,2]], 0.06, 0.12, 1); },
+  bonus() { const t = now(); for (let i = 0; i < 6; i++) tone(mf(79 + i * 2), t + i * 0.045, 0.05, 0.13, 1); },
+  extra() { seq([[79,1],[84,1],[88,1],[91,1],[88,1],[91,3]], 0.07, 0.13, 1); },
+  over() { stopMusic(); seq([[72,2],[71,2],[69,2],[67,2],[65,2],[64,2],[62,2],[60,6]], 0.12, 0.13, 1); },
+  hiscore() { seq([[72,1],[76,1],[79,1],[84,1],[79,1],[84,3]], 0.1, 0.12, 1); },
+};
+function stopMusic() { hurryOn = false; }
 
-  const L = { x: -1, y: 0, id: "L" };
-  const R = { x: 1, y: 0, id: "R" };
-  const U = { x: 0, y: -1, id: "U" };
-  const D = { x: 0, y: 1, id: "D" };
-  const ORDER = [U, L, D, R];
-  const OPP = { L: R, R: L, U: D, D: U };
-  const DIR_BY_ID = { L, R, U, D };
+/* ---------------- playfield ---------------- */
+const DIRT_TOP = 40, ROW0 = 32, MW = 112, MH = 116;   // dig mask in 2x2 px cells from y=40..272
+let dug = new Uint8Array(MW * MH);
+const dirt = document.createElement("canvas"); dirt.width = W; dirt.height = H; const dctx = dirt.getContext("2d");
+// 4 strata [base, speckle]; palette changes every 4 rounds (round 1 colours measured from the reference)
+const PALETTES = [
+  [["#feb800","#c8d80a"],["#dd6800","#ffb800"],["#b72200","#e86e00"],["#970000","#c02800"]],
+  [["#ffde97","#ffffff"],["#dea050","#ffde97"],["#b86e2c","#e0a060"],["#7a3e10","#b86e2c"]],
+  [["#97de97","#e0ffe0"],["#50b050","#a0e090"],["#288028","#60b040"],["#0a500a","#309030"]],
+  [["#de97de","#ffd0ff"],["#b060b0","#de97de"],["#802880","#b060b0"],["#500a50","#802880"]],
+  [["#97c8ff","#e0f0ff"],["#5090de","#97c8ff"],["#2860b0","#5090de"],["#0a3080","#2860b0"]],
+  [["#dedede","#ffffff"],["#a0a0a0","#dedede"],["#707070","#a8a8a8"],["#404040","#787878"]],
+];
+const BANDS = [40, 96, 160, 224, 272];
+function paletteFor(r) { return PALETTES[Math.floor((r - 1) / 4) % PALETTES.length]; }
+function buildDirt(r) {
+  const P = paletteFor(r);
+  dctx.clearRect(0, 0, W, H);
+  for (let b = 0; b < 4; b++) {
+    const y0 = BANDS[b], y1 = BANDS[b + 1];
+    dctx.fillStyle = P[b][0]; dctx.fillRect(0, y0, W, y1 - y0);
+    dctx.fillStyle = P[b][1];
+    for (let y = y0 + 2; y < y1; y += 4) for (let x = ((y >> 2) & 1) * 2 + 1; x < W; x += 4) dctx.fillRect(x, y, 1, 1);
+  }
+  dug.fill(0);
+}
+function isDug(px, py) {
+  px |= 0; py |= 0;
+  if (px < 0 || px >= W) return false;
+  if (py < DIRT_TOP) return py >= 0;
+  if (py >= 272) return false;
+  return dug[((py - DIRT_TOP) >> 1) * MW + (px >> 1)] === 1;
+}
+function digRect(x0, y0, x1, y1) { // inclusive px rect
+  x0 = Math.max(0, x0); x1 = Math.min(W - 1, x1); y0 = Math.max(DIRT_TOP, y0); y1 = Math.min(271, y1);
+  if (y1 < y0) return;
+  for (let y = y0 >> 1; y <= y1 >> 1; y++) for (let x = x0 >> 1; x <= x1 >> 1; x++) {
+    const i = (y - (DIRT_TOP >> 1)) * MW + x; if (i >= 0 && i < dug.length) dug[i] = 1; }
+  dctx.clearRect(x0 & ~1, y0 & ~1, ((x1 | 1) - (x0 & ~1)) + 1, ((y1 | 1) - (y0 & ~1)) + 1);
+}
+function dig(x, y) { // a 16x16 sprite position -> 12px wide rounded tunnel
+  digRect(x + 3, y + 2, x + 12, y + 13); digRect(x + 2, y + 3, x + 13, y + 12);
+}
+function digCell(c, r) { dig(c * 16, ROW0 + r * 16); }
+function digLine(c0, r0, c1, r1) {
+  const sc = Math.sign(c1 - c0), sr = Math.sign(r1 - r0);
+  let x = c0 * 16, y = ROW0 + r0 * 16; const X = c1 * 16, Y = ROW0 + r1 * 16;
+  for (;;) { dig(x, y); if (x === X && y === Y) break; x += sc * 2; y += sr * 2; }
+}
 
-  // Pop points by dirt layer (deeper = more)
-  const POP_BASE = [200, 200, 300, 400, 500, 600, 700, 800];
-  const VEG = [
-    { e: "🥕", p: 400 }, { e: "🌽", p: 600 }, { e: "🍅", p: 800 },
-    { e: "🥒", p: 1000 }, { e: "🍆", p: 2000 }, { e: "🥦", p: 3000 },
-    { e: "🍄", p: 4000 }, { e: "🍍", p: 5000 },
-  ];
-
-  // Speeds (px/sec) — scaled with TILE (base was for 28px tiles)
-  const SPD_DIG = 105 * (TILE / 28);
-  const SPD_DIG_DIRT = 70 * (TILE / 28);
-  const SPD_ENEMY = 72 * (TILE / 28);
-  const SPD_GHOST = 58 * (TILE / 28);
-  const SPD_ROCK = 220 * (TILE / 28);
-
-  // ── DOM ──────────────────────────────────────────────────────────────────
-  const canvas = document.getElementById("game");
-  const ctx = canvas.getContext("2d");
-  canvas.width = W;
-  canvas.height = H;
-  document.documentElement.style.setProperty("--board-w", W + "px");
-  document.documentElement.style.setProperty("--board-h", H + "px");
-
-  const $score = document.getElementById("score");
-  const $high = document.getElementById("high-score");
-  const $level = document.getElementById("level");
-  const $lives = document.getElementById("lives");
-  const $veg = document.getElementById("veg-tray");
-  const overlay = document.getElementById("overlay");
-  const $title = document.getElementById("overlay-title");
-  const $sub = document.getElementById("overlay-sub");
-  const $hint = document.getElementById("overlay-hint");
-  const $ctrl = document.getElementById("overlay-controls");
-
-  // ── Audio (Namco Dig Dug style synthesis) ────────────────────────────────
-  let audio = null, muted = false, noiseBuf = null, digStep = 0, lastWalkTone = 0;
-  function unlockAudio() {
-    if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === "suspended") audio.resume();
-    if (!noiseBuf && audio) {
-      const n = audio.sampleRate * 0.25 | 0;
-      noiseBuf = audio.createBuffer(1, n, audio.sampleRate);
-      const d = noiseBuf.getChannelData(0);
-      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+/* ---------------- round setup ---------------- */
+let rngS = 1; const rnd = () => ((rngS = (rngS * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+const VEG = [["CARROT",400],["TURNIP",600],["MUSHROOM",800],["CUCUMBER",1000],["EGGPLANT",2000],["PEPPER",3000],
+             ["TOMATO",4000],["ONION",5000],["WATERMELON",6000],["GALAXIAN",7000],["PINEAPPLE",8000]];
+function vegIndex(r) { return r <= 1 ? 0 : r === 2 ? 1 : Math.min(10, Math.floor((r - 3) / 2) + 2); }
+function enemyCounts(r) { const total = Math.min(8, 4 + Math.floor((r - 1) / 2)); const fy = Math.min(total - 2, 1 + Math.floor(r / 3)); return [total - fy, fy]; }
+// Round 1 layout measured from the reference capture (col,row ; rows 1..14 are dirt)
+const ROUND1 = {
+  tunnels: [[1,2,1,6],[9,2,11,2],[2,10,5,10],[9,9,9,13]],
+  enemies: [["pooka",1,3],["pooka",10,2],["fygar",3,10],["pooka",9,12]],
+  rocks: [[4,3],[10,9],[3,11]],
+};
+function genLayout(r) {
+  if (r === 1) return ROUND1;
+  rngS = r * 7919 + 13;
+  const [np, nf] = enemyCounts(r), L = { tunnels: [], enemies: [], rocks: [] }, used = new Set();
+  const occ = (c, rr) => used.has(c + "," + rr);
+  const mark = (c, rr) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) used.add((c + a) + "," + (rr + b)); };
+  for (let rr = 1; rr <= 8; rr++) used.add("6," + rr), used.add("5,7"), used.add("7,7"), used.add("5," + rr), used.add("7," + rr);
+  const types = []; for (let i = 0; i < np; i++) types.push("pooka"); for (let i = 0; i < nf; i++) types.splice(1 + (i * 2) % (types.length), 0, "fygar");
+  for (const ty of types) {
+    for (let tries = 0; tries < 200; tries++) {
+      const horiz = rnd() < 0.55, len = 2 + Math.floor(rnd() * 3);
+      const c0 = Math.floor(rnd() * (horiz ? 14 - len : 13)), r0 = 2 + Math.floor(rnd() * (horiz ? 12 : 13 - len));
+      const cells = []; for (let k = 0; k <= len; k++) cells.push(horiz ? [c0 + k, r0] : [c0, r0 + k]);
+      if (cells.some(([c, rr]) => c > 13 || rr > 14 || occ(c, rr))) continue;
+      cells.forEach(([c, rr]) => mark(c, rr));
+      L.tunnels.push([cells[0][0], cells[0][1], cells[len][0], cells[len][1]]);
+      const m = cells[Math.floor(len / 2)]; L.enemies.push([ty, m[0], m[1]]); break;
     }
   }
-  function tone(freq, dur, type = "square", vol = 0.035, when = 0, slideTo) {
-    if (muted || !audio) return;
-    const t = audio.currentTime + when;
-    const o = audio.createOscillator();
-    const g = audio.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(Math.max(20, freq), t);
-    if (slideTo != null) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t + dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(audio.destination);
-    o.start(t); o.stop(t + dur + 0.03);
+  const nr = r < 5 ? 3 : 4;
+  for (let tries = 0; tries < 300 && L.rocks.length < nr; tries++) {
+    const c = Math.floor(rnd() * 14), rr = 2 + Math.floor(rnd() * 11);
+    if (occ(c, rr) || occ(c, rr + 1) || L.rocks.some(([a, b]) => Math.abs(a - c) < 2 && Math.abs(b - rr) < 2)) continue;
+    L.rocks.push([c, rr]); used.add(c + "," + rr);
   }
-  function noise(dur, vol = 0.03, when = 0, filterFreq = 800) {
-    if (muted || !audio || !noiseBuf) return;
-    const t = audio.currentTime + when;
-    const src = audio.createBufferSource();
-    src.buffer = noiseBuf;
-    const f = audio.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = filterFreq;
-    const g = audio.createGain();
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f); f.connect(g); g.connect(audio.destination);
-    src.start(t); src.stop(t + dur + 0.02);
-  }
-  function seq(notes, type = "square", vol = 0.035) {
-    let t = 0;
-    for (const n of notes) {
-      const [f, d, gap = 0] = n;
-      if (f > 0) tone(f, d, type, vol, t);
-      t += d + gap;
-    }
-  }
-  function sfx(name, arg) {
-    unlockAudio();
-    if (muted || !audio) return;
+  return L;
+}
 
-    if (name === "dig") {
-      // Dirt scrape: noise + low thunk
-      noise(0.04, 0.04, 0, 600 + Math.random() * 400);
-      tone(70 + Math.random() * 25, 0.045, "triangle", 0.025);
-      // Light walking motif tick (arcade dig rhythm)
-      digStep = (digStep + 1) % 4;
-      const walkNotes = [262, 294, 330, 294];
-      tone(walkNotes[digStep], 0.04, "square", 0.012);
-    } else if (name === "walk") {
-      // Soft tunnel footstep motif while moving in open tunnels
-      if (time - lastWalkTone < 90) return;
-      lastWalkTone = time;
-      digStep = (digStep + 1) % 8;
-      // Simplified Dig Dug march: bouncing 8-step pattern
-      const march = [330, 0, 392, 0, 330, 294, 262, 294];
-      const f = march[digStep];
-      if (f) tone(f, 0.05, "square", 0.014);
-    } else if (name === "pump") {
-      // Inflate: rising pitch per pump stage (arg = inflate 1–4)
-      const stage = Math.max(1, Math.min(4, arg || 1));
-      const f0 = 140 + stage * 55;
-      tone(f0, 0.08, "square", 0.035, 0, f0 * 1.35);
-      tone(f0 * 0.5, 0.07, "triangle", 0.02);
-      noise(0.05, 0.015, 0, 1500);
-    } else if (name === "pop") {
-      // Monster pop / explode
-      noise(0.12, 0.05, 0, 2000);
-      tone(400, 0.08, "square", 0.04, 0, 180);
-      tone(600, 0.1, "square", 0.035, 0.04, 120);
-      tone(900, 0.06, "triangle", 0.025, 0.02);
-    } else if (name === "rock") {
-      // Boulder: deep thud + gravel
-      noise(0.2, 0.06, 0, 350);
-      tone(45, 0.25, "sine", 0.06);
-      tone(70, 0.15, "triangle", 0.035, 0.02, 40);
-    } else if (name === "die") {
-      // Dig Dug death — falling with noise
-      for (let i = 0; i < 10; i++) {
-        tone(360 - i * 28, 0.06, "square", 0.03, i * 0.055);
+/* ---------------- game state ---------------- */
+const DIRS = { U: [0, -1], D: [0, 1], L: [-1, 0], R: [1, 0] };
+const OPP = { U: "D", D: "U", L: "R", R: "L" };
+let mode = "attract", credits = 0, round = 1, score = 0, lives = 2, nextExtra = 10000, frame = 0, modeT = 0;
+let player, enemies = [], rocks = [], harpoon = null, veg = null, pops = [], rocksDropped = 0, vegSpawned = false;
+let shots = 0, layout = null, paused = false, firstReady = true, lastMoved = false;
+const TABLE_KEY = "digdug_table";
+let table; try { table = JSON.parse(localStorage.getItem(TABLE_KEY)); } catch (e) { table = null; }
+if (!Array.isArray(table) || table.length !== 5) table = [[10000,"DIG"],[9000,"DUG"],[8000,"POO"],[7000,"KAH"],[6000,"FYG"]];
+let high = Math.max(+localStorage.getItem("digdug_high") || 0, table[0][0]);
+let entry = null;
+
+function addScore(n) {
+  score += n;
+  if (score >= nextExtra) { lives++; sfx.extra(); nextExtra += nextExtra === 10000 ? 40000 : 40000; }
+  if (score > high) { high = score; localStorage.setItem("digdug_high", String(high)); }
+}
+function layerOf(y) { const cy = y + 8; return cy < 96 ? 0 : cy < 160 ? 1 : cy < 224 ? 2 : 3; }
+function startGame(r) {
+  audio(); round = r || 1; score = 0; lives = 2; nextExtra = 10000; firstReady = true;
+  sfx.start(); startRound(true);
+}
+function startRound(fresh) {
+  layout = genLayout(round);
+  buildDirt(round);
+  for (const [a, b, c, d] of layout.tunnels) digLine(a, b, c, d);
+  // centre shaft dug from the surface to row 7 and the start chamber
+  digRect(99, DIRT_TOP, 108, 140); digLine(5, 7, 7, 7);
+  rocks = layout.rocks.map(([c, rr]) => ({ x: c * 16, y: ROW0 + rr * 16, st: "idle", t: 0, crushed: [], fell: false }));
+  rocksDropped = 0; vegSpawned = false; veg = null;
+  spawnActors();
+}
+function spawnActors() {
+  player = { x: 96, y: ROW0 + 7 * 16, face: "R", anim: 0, moveAcc: 0, dead: 0 };
+  enemies = layout.enemies.map(([ty, c, rr], i) => mkEnemy(ty, c * 16, ROW0 + rr * 16, i));
+  harpoon = null; pops = []; hurryOn = false;
+  mode = "ready"; modeT = 0;
+}
+function mkEnemy(type, x, y, i) {
+  return { type, x, y, hx: x, hy: y, dir: i % 2 ? "L" : "R", fx: i % 2 ? -1 : 1, st: "move", acc: 0, inflate: 0, deflT: 0,
+    ghostT: ghostDelay() + i * 40, t: 0, anim: 0, fireT: 0, horiz: false, gx: 0, gy: 0, flee: false };
+}
+const ghostDelay = () => Math.max(150, 540 - round * 25) + Math.floor(Math.random() * 240);
+const eSpeed = () => Math.min(0.75, 0.38 + round * 0.025);
+const gSpeed = () => Math.min(0.55, 0.26 + round * 0.02);
+
+/* ---------------- input ---------------- */
+const held = []; let pumpHeld = false, pumpEdge = false, touchDir = null;
+const KEYDIR = { ArrowUp: "U", KeyW: "U", ArrowDown: "D", KeyS: "D", ArrowLeft: "L", KeyA: "L", ArrowRight: "R", KeyD: "R" };
+function curDir() { if (touchDir) return touchDir; return held.length ? held[held.length - 1] : null; }
+addEventListener("keydown", e => {
+  audio();
+  const d = KEYDIR[e.code];
+  if (d) { e.preventDefault(); if (!held.includes(d)) held.push(d); if (mode === "entry") entryKey(d); return; }
+  if (e.code === "Space" || e.code === "ControlLeft" || e.code === "ControlRight") { e.preventDefault(); if (!e.repeat) { pumpEdge = true; if (mode === "entry") entryKey("OK"); } pumpHeld = true; return; }
+  if (e.repeat) return;
+  if (e.code === "Digit5" || e.code === "Numpad5") coin();
+  else if (e.code === "Enter" || e.code === "Digit1" || e.code === "Numpad1") { if (mode === "entry") entryKey("OK"); else { if (!credits && e.code === "Enter") coin(); pressStart(); } }
+  else if (e.code === "KeyP") { if (mode !== "attract") paused = !paused; }
+  else if (e.code === "KeyM") setMute(!muted);
+  else if (e.code === "Backquote" && DEBUG) debug.clear();
+});
+addEventListener("keyup", e => {
+  const d = KEYDIR[e.code]; if (d) { const i = held.indexOf(d); if (i >= 0) held.splice(i, 1); }
+  if (e.code === "Space" || e.code.startsWith("Control")) pumpHeld = false;
+});
+addEventListener("blur", () => { held.length = 0; pumpHeld = false; touchDir = null; });
+function coin() { if (mode === "attract" || mode === "over") { credits = Math.min(9, credits + 1); sfx.coin(); } }
+function pressStart() { if (mode === "attract" && credits > 0) { credits--; startGame(1); } }
+
+// touch: d-pad runs while held (slide between directions), big PUMP button, multi-touch via pointer events
+const dpad = document.getElementById("dpad"), pumpBtn = document.getElementById("btn-pump");
+let touchMode = false;
+function setTouch() { if (!touchMode) { touchMode = true; document.body.classList.add("touch"); } }
+if ("ontouchstart" in window || navigator.maxTouchPoints > 0) setTouch();
+const dpadPtrs = new Map();
+function dpadDir(e) {
+  const r = dpad.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  if (Math.hypot(dx, dy) < r.width * 0.08) return null;
+  return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "R" : "L") : (dy > 0 ? "D" : "U");
+}
+function refreshDpad() {
+  let d = null; for (const v of dpadPtrs.values()) d = v || d; 
+  if (d !== touchDir && mode === "entry" && d) entryKey(d);
+  touchDir = d;
+  dpad.querySelectorAll(".dp").forEach(b => b.classList.toggle("active", b.dataset.dir === d));
+}
+if (dpad) {
+  dpad.addEventListener("pointerdown", e => { e.preventDefault(); audio(); setTouch(); try { dpad.setPointerCapture(e.pointerId); } catch (_) {} dpadPtrs.set(e.pointerId, dpadDir(e)); refreshDpad(); if (mode === "attract") credits ? pressStart() : coin(); });
+  dpad.addEventListener("pointermove", e => { if (dpadPtrs.has(e.pointerId)) { dpadPtrs.set(e.pointerId, dpadDir(e)); refreshDpad(); } });
+  const up = e => { dpadPtrs.delete(e.pointerId); refreshDpad(); };
+  dpad.addEventListener("pointerup", up); dpad.addEventListener("pointercancel", up); dpad.addEventListener("lostpointercapture", up);
+}
+if (pumpBtn) {
+  pumpBtn.addEventListener("pointerdown", e => { e.preventDefault(); audio(); setTouch(); try { pumpBtn.setPointerCapture(e.pointerId); } catch (_) {}
+    pumpBtn.classList.add("active"); pumpHeld = true; pumpEdge = true;
+    if (mode === "attract") { credits ? pressStart() : coin(); } else if (mode === "entry") entryKey("OK"); });
+  const up = () => { pumpHeld = false; pumpBtn.classList.remove("active"); };
+  pumpBtn.addEventListener("pointerup", up); pumpBtn.addEventListener("pointercancel", up); pumpBtn.addEventListener("lostpointercapture", up);
+}
+cv.addEventListener("pointerdown", e => { audio(); if (e.pointerType !== "mouse") setTouch(); if (mode === "attract") { if (credits) pressStart(); else coin(); } });
+const pb = document.getElementById("btn-pause"); if (pb) pb.addEventListener("click", () => { if (mode !== "attract") paused = !paused; pb.blur(); });
+document.addEventListener("touchstart", e => { if (!e.target.closest("#topbar")) e.preventDefault(); }, { passive: false });
+document.addEventListener("touchmove", e => e.preventDefault(), { passive: false });
+document.addEventListener("gesturestart", e => e.preventDefault());
+document.addEventListener("dblclick", e => e.preventDefault());
+
+/* ---------------- player ---------------- */
+const aligned = v => (v & 15) === 0;
+const alignedY = y => ((y - ROW0) & 15) === 0;
+function rockAt(x, y, ignore) { return rocks.find(r => r !== ignore && r.st !== "crumble" && Math.abs(r.x - x) < 14 && Math.abs(r.y - y) < 14); }
+function stepPlayer() {
+  const p = player; let d = curDir(); let moved = false;
+  if (harpoon) { if (d && harpoon.st === "hold") harpoon = null; else d = null; }
+  if (d) {
+    let md = d;
+    const horiz = d === "L" || d === "R";
+    if (horiz && !alignedY(p.y)) md = (p.face === "U" || p.face === "D") ? p.face : (((p.y - ROW0) & 15) < 8 ? "U" : "D");
+    if (!horiz && !aligned(p.x)) md = (p.face === "L" || p.face === "R") ? p.face : ((p.x & 15) < 8 ? "L" : "R");
+    p.moveAcc += 0.5 + (frame & 1 ? 0.06 : 0);  // ~0.53 px/frame, measured from the capture
+    while (p.moveAcc >= 1) {
+      p.moveAcc -= 1;
+      const [dx, dy] = DIRS[md], nx = p.x + dx, ny = p.y + dy;
+      if (nx < 0 || nx > 208 || ny < 48 || ny > 256) break;
+      if (rockAt(nx + dx * 2, ny + dy * 2)) break;
+      p.x = nx; p.y = ny; p.face = md; moved = true; dig(p.x, p.y);
+      if (md !== d && ((d === "L" || d === "R") ? alignedY(p.y) : aligned(p.x))) md = d;
+    }
+    if (moved) p.anim++;
+  }
+  if (moved) p.walkHold = 4; else if (p.walkHold > 0) p.walkHold--;
+  lastMoved = p.walkHold > 0;
+  if (lastMoved) walkTick(1 / FPS);
+  // pump
+  if (pumpEdge) {
+    if (!harpoon) { shots++; harpoon = { len: 0, dir: p.face, st: "ext", target: null, pumpT: 0 }; sfx.harpoon(); }
+    else if (harpoon.st === "hold") pumpOnce();
+  }
+  if (harpoon && harpoon.st === "hold" && pumpHeld) { if (++harpoon.pumpT >= 16) pumpOnce(); }
+  if (harpoon && harpoon.st === "ext") {
+    harpoon.len += 4;
+    const [dx, dy] = DIRS[harpoon.dir], cx = p.x + 8, cy = p.y + 8;
+    const tx = cx + dx * (6 + harpoon.len), ty = cy + dy * (6 + harpoon.len);
+    const hit = enemies.find(e => (e.st === "move" || e.st === "fire" || e.st === "inflate" || (e.st === "flee" && e.fleePh === 2)) &&
+      Math.abs(e.x + 8 - tx) < 8 && Math.abs(e.y + 8 - ty) < 8);
+    if (hit) { harpoon.st = "hold"; harpoon.target = hit; harpoon.pumpT = 0; hit.st = "inflate"; hit.flee = hit.flee; hit.horiz = dx !== 0; if (hit.inflate < 1) hit.inflate = 1; hit.deflT = 0; sfx.pump(); }
+    else if (!isDug(tx, ty) || tx < 0 || tx > W || harpoon.len >= 44) harpoon = null;
+  }
+  if (harpoon && harpoon.st === "hold") {
+    const e = harpoon.target; if (!enemies.includes(e) || e.st !== "inflate") harpoon = null;
+    else { const [dx, dy] = DIRS[harpoon.dir]; harpoon.len = Math.max(0, Math.abs(dx ? e.x - p.x : e.y - p.y) - 8); }
+  }
+}
+function pumpOnce() {
+  const e = harpoon.target; harpoon.pumpT = 0; e.inflate++; e.deflT = 0; sfx.pump();
+  if (e.inflate >= 4) { e.st = "pop"; e.t = 0; sfx.pop(); harpoon = null;
+    let pts = [200, 300, 400, 500][layerOf(e.y)]; if (e.type === "fygar" && e.horiz) pts *= 2;
+    addScore(pts); pops.push({ x: e.x + 8, y: e.y, txt: String(pts), t: 0 }); }
+}
+
+/* ---------------- enemies ---------------- */
+function canPass(x, y, d, e) {
+  const [dx, dy] = DIRS[d], nx = x + dx * 16, ny = y + dy * 16;
+  if (nx < 0 || nx > 208 || ny < 48 || ny > 256) return false;
+  for (let k = 4; k <= 16; k += 4) if (!isDug(x + 8 + dx * k, y + 8 + dy * k)) return false;
+  if (rockAt(nx, ny)) return false;
+  return true;
+}
+function chooseDir(e) {
+  const opts = Object.keys(DIRS).filter(d => canPass(e.x, e.y, d, e));
+  if (!opts.length) return null;
+  const nr = opts.filter(d => d !== OPP[e.dir]);
+  if (!nr.length) return opts[0];
+  if (nr.includes(e.dir) && Math.random() < 0.6) return e.dir;
+  if (Math.random() < 0.55) { // chase bias
+    const best = nr.slice().sort((a, b) => dist2(e, a) - dist2(e, b))[0]; return best; }
+  return nr[Math.floor(Math.random() * nr.length)];
+}
+function dist2(e, d) { const [dx, dy] = DIRS[d]; return (e.x + dx * 16 - player.x) ** 2 + (e.y + dy * 16 - player.y) ** 2; }
+function liveEnemies() { return enemies.filter(e => e.st !== "pop" && e.st !== "crushed"); }
+function stepEnemies() {
+  const live = liveEnemies();
+  if (live.length === 1 && !live[0].flee && mode === "play" && live[0].st !== "inflate") { live[0].flee = true; live[0].st = "flee"; live[0].fleePh = 0; hurryOn = true; hurryNext = 0; }
+  for (const e of enemies) {
+    e.t++; e.anim++;
+    if (e.st === "move") {
+      e.acc += eSpeed();
+      if (aligned(e.x) && alignedY(e.y) && --e.ghostT <= 0 && player.dead === 0) { e.st = "ghost"; e.gx = e.x; e.gy = e.y; e.t = 0; e.from = e.x + "," + e.y; continue; }
+      while (e.acc >= 1) {
+        e.acc -= 1;
+        if (aligned(e.x) && alignedY(e.y)) { const d = chooseDir(e); if (!d) { e.acc = 0; break; } e.dir = d; }
+        const [dx, dy] = DIRS[e.dir]; e.x += dx; e.y += dy; if (dx) e.fx = dx;
       }
-      noise(0.25, 0.035, 0.15, 700);
-    } else if (name === "start") {
-      // Opening fanfare (arcade-ish Dig Dug greeting)
-      seq([
-        [392, 0.1, 0.02], [494, 0.1, 0.02], [587, 0.1, 0.02], [784, 0.14, 0.05],
-        [659, 0.09, 0.02], [587, 0.09, 0.02], [523, 0.09, 0.02], [494, 0.16, 0],
-      ], "square", 0.034);
-    } else if (name === "clear") {
-      seq([
-        [523, 0.08, 0.02], [659, 0.08, 0.02], [784, 0.08, 0.02],
-        [1047, 0.12, 0.04], [988, 0.08, 0.02], [1047, 0.16, 0],
-      ], "square", 0.036);
-    } else if (name === "veg") {
-      tone(660, 0.06, "square", 0.035);
-      tone(880, 0.07, "square", 0.04, 0.05);
-      tone(1320, 0.1, "triangle", 0.025, 0.1);
-    } else if (name === "1up") {
-      seq([
-        [523, 0.07, 0.01], [659, 0.07, 0.01], [784, 0.07, 0.01], [1047, 0.14, 0],
-      ], "square", 0.038);
-    } else if (name === "fire") {
-      // Fygar breath: noise roar + low saw
-      noise(0.18, 0.05, 0, 900);
-      tone(110, 0.16, "sawtooth", 0.03, 0, 70);
-      tone(180, 0.12, "square", 0.015, 0.02, 90);
-    } else if (name === "ghost") {
-      // Balloon ghost float
-      tone(220, 0.12, "triangle", 0.02, 0, 440);
-      tone(330, 0.1, "sine", 0.015, 0.05, 180);
-    }
-  }
-
-  // ── State ────────────────────────────────────────────────────────────────
-  let map = [], dug = [];
-  let score = 0;
-  let high = +localStorage.getItem("digdug_high") || 0;
-  let level = 1, lives = 3, extra = false;
-  let state = "title";
-  let readyT = 0, dieT = 0, clearT = 0;
-  let time = 0, prev = 0;
-  let digdug, enemies, rocks, hose, veg, pops;
-  let hold = null;
-  let pumping = false;
-  let vegGot = [];
-  let flowerPhase = 0;
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
-  function pad(n) { return String(n).padStart(2, "0"); }
-  function midX(c) { return c * TILE + TILE * 0.5; }
-  function midY(r) { return r * TILE + TILE * 0.5; }
-  function nearestCol(x) { return Math.round((x - TILE * 0.5) / TILE); }
-  function nearestRow(y) { return Math.round((y - TILE * 0.5) / TILE); }
-  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-  function inBounds(c, r) { return c >= 0 && r >= 0 && c < COLS && r < ROWS; }
-
-  function isTunnel(c, r) {
-    if (!inBounds(c, r)) return false;
-    if (r < SURFACE) return true;
-    return map[r][c] === EMPTY;
-  }
-
-  function dirtBand(r) {
-    return clamp(((r - SURFACE) / Math.max(1, ROWS - SURFACE - 1)) * DIRT_COLS.length | 0, 0, DIRT_COLS.length - 1);
-  }
-
-  function depthScore(r) {
-    const band = clamp(((r - SURFACE) / Math.max(1, ROWS - SURFACE - 1)) * POP_BASE.length | 0, 0, POP_BASE.length - 1);
-    return POP_BASE[band];
-  }
-
-  function hud() {
-    $score.textContent = pad(score);
-    $high.textContent = pad(high);
-    $level.textContent = String(level);
-    $lives.innerHTML = "";
-    for (let i = 0; i < lives; i++) {
-      const d = document.createElement("div");
-      d.className = "life-icon";
-      $lives.appendChild(d);
-    }
-    $veg.textContent = vegGot.map((i) => VEG[i % VEG.length].e).join("");
-  }
-
-  function addScore(n) {
-    score += n;
-    if (score > high) {
-      high = score;
-      localStorage.setItem("digdug_high", String(high));
-    }
-    if (!extra && score >= 10000) { extra = true; lives++; sfx("1up"); }
-    hud();
-  }
-
-  function showOV(title, sub, cls) {
-    overlay.classList.remove("hidden", "ready", "paused", "gameover");
-    if (cls) overlay.classList.add(cls);
-    $title.textContent = title;
-    $sub.textContent = sub || "";
-    const home = title === "DIG DUG";
-    $hint.style.display = home ? "" : "none";
-    if ($ctrl) $ctrl.style.display = home ? "" : "none";
-  }
-  function hideOV() { overlay.classList.add("hidden"); }
-
-  function isTouchPrimary() {
-    return window.matchMedia("(pointer: coarse)").matches
-      || window.matchMedia("(max-width: 820px)").matches
-      || ("ontouchstart" in window);
-  }
-
-  // Grid alignment — only for turn decisions (must be << one frame of movement)
-  const ALIGN = 1.2 * (TILE / 28); // keep << one frame of movement
-  function atCenter(e) {
-    return Math.abs(e.x - midX(nearestCol(e.x))) <= ALIGN
-      && Math.abs(e.y - midY(nearestRow(e.y))) <= ALIGN;
-  }
-  function snapCenter(e) {
-    e.x = midX(nearestCol(e.x));
-    e.y = midY(nearestRow(e.y));
-  }
-
-  // ── Level build ──────────────────────────────────────────────────────────
-  function carve(c, r) {
-    if (!inBounds(c, r) || r < SURFACE) return;
-    if (map[r][c] === ROCK) return;
-    map[r][c] = EMPTY;
-    dug[r][c] = 1;
-  }
-
-  function carveRect(c, r, w, h) {
-    for (let y = r; y < r + h; y++)
-      for (let x = c; x < c + w; x++)
-        carve(x, y);
-  }
-
-  function carvePath(cells) {
-    for (const p of cells) carve(p.c, p.r);
-  }
-
-  function buildLevel(lv) {
-    map = [];
-    dug = [];
-    for (let r = 0; r < ROWS; r++) {
-      map[r] = [];
-      dug[r] = [];
-      for (let c = 0; c < COLS; c++) {
-        if (r < SURFACE) {
-          map[r][c] = EMPTY;
-          dug[r][c] = 1;
-        } else {
-          map[r][c] = DIRT;
-          dug[r][c] = 0;
+      // Fygar fire
+      if (e.type === "fygar" && Math.abs(player.y - e.y) < 6 && player.dead === 0 && Math.abs(player.x - e.x) < 72 && Math.random() < 0.006 + round * 0.0005) {
+        e.fx = player.x > e.x ? 1 : -1; e.st = "fire"; e.t = 0; }
+    } else if (e.st === "fire") {
+      if (e.t === 36) sfx.fire();
+      if (e.t > 110) { e.st = "move"; e.t = 0; }
+    } else if (e.st === "ghost") {
+      const tx = player.x, ty = player.y, dx = tx - e.gx, dy = ty - e.gy, m = Math.hypot(dx, dy) || 1;
+      e.gx += dx / m * gSpeed(); e.gy += dy / m * gSpeed(); e.x = Math.round(e.gx); e.y = Math.round(e.gy);
+      if (dx) e.fx = Math.sign(dx);
+      if (e.t > 60) {
+        const c = Math.round(e.gx / 16) * 16, r = ROW0 + Math.round((e.gy - ROW0) / 16) * 16;
+        if (Math.abs(c - e.gx) < 1 && Math.abs(r - e.gy) < 1 && r >= 48 && (c + "," + r) !== e.from && isDug(c + 8, r + 8) && isDug(c + 3, r + 8) && isDug(c + 12, r + 8) && !rockAt(c, r) ||
+            (e.t > 900 && isDug(c + 8, r + 8) && r >= 48)) {
+          e.x = c; e.y = r; e.st = "move"; e.ghostT = ghostDelay(); e.t = 0; e.acc = 0;
         }
       }
-    }
-
-    // Player start shaft (classic left-side entry)
-    const sc = 2;
-    carve(sc, SURFACE);
-    carve(sc, SURFACE + 1);
-    carve(sc, SURFACE + 2);
-    carve(sc + 1, SURFACE + 2);
-
-    // Connected tunnel network (enemies can patrol) — arcade-like pockets + corridors
-    // Horizontal lanes
-    for (let c = 4; c <= 12; c++) carve(c, 6);
-    for (let c = 1; c <= 8; c++) carve(c, 10);
-    for (let c = 5; c <= 13; c++) carve(c, 14);
-    // Vertical connectors
-    for (let r = 6; r <= 10; r++) carve(6, r);
-    for (let r = 6; r <= 10; r++) carve(11, r);
-    for (let r = 10; r <= 14; r++) carve(4, r);
-    for (let r = 10; r <= 14; r++) carve(9, r);
-    for (let r = 6; r <= 14; r++) carve(13, r);
-
-    // Extra lanes by level
-    if (lv >= 2) {
-      for (let c = 2; c <= 7; c++) carve(c, 8);
-      for (let r = 8; r <= 12; r++) carve(2, r);
-    }
-    if (lv >= 3) {
-      for (let c = 8; c <= 12; c++) carve(c, 12);
-      for (let r = 12; r <= 16; r++) carve(12, r);
-    }
-    if (lv >= 5) {
-      for (let c = 1; c <= 5; c++) carve(c, 16);
-      for (let r = 14; r <= 16; r++) carve(1, r);
-    }
-
-    // Rocks (hover in dirt — fall when tunnel opens below)
-    rocks = [];
-    const rockSpots = [
-      { c: 5, r: 5 }, { c: 10, r: 8 }, { c: 7, r: 12 }, { c: 12, r: 11 },
-    ];
-    if (lv >= 3) rockSpots.push({ c: 3, r: 9 });
-    if (lv >= 5) rockSpots.push({ c: 8, r: 15 });
-    if (lv >= 7) rockSpots.push({ c: 14, r: 7 });
-    for (const s of rockSpots) {
-      if (s.r >= SURFACE && s.r < ROWS && s.c >= 0 && s.c < COLS) {
-        map[s.r][s.c] = ROCK;
-        dug[s.r][s.c] = 0;
-        rocks.push({
-          c: s.c, r: s.r,
-          x: midX(s.c), y: midY(s.r),
-          falling: false, fallV: 0, gone: false, crushT: 0, warn: 0,
-        });
+    } else if (e.st === "flee") {
+      if (e.fleePh === 0) { // become eyes and head straight up to the surface
+        e.gx = e.x; e.gy = e.y; e.fleePh = 1; }
+      if (e.fleePh === 1) {
+        const tx = Math.round(e.gx / 16) * 16;
+        e.gx += Math.sign(tx - e.gx) * Math.min(Math.abs(tx - e.gx), gSpeed());
+        e.gy -= gSpeed() * 1.2; e.x = Math.round(e.gx); e.y = Math.round(e.gy);
+        if (e.gy <= ROW0) { e.y = ROW0; e.x = Math.round(e.gx); e.fleePh = 2; e.fx = -1; e.acc = 0; }
+      } else if (e.fleePh === 2) {
+        e.acc += eSpeed() * 1.1; while (e.acc >= 1) { e.acc -= 1; e.x--; } e.fx = -1;
+        if (e.x < -16) { e.st = "crushed"; e.gone = true; }
       }
-    }
-
-    digdug = {
-      x: midX(sc), y: midY(SURFACE + 1),
-      dir: R, next: null,
-      dead: false, walk: 0, digAnim: 0,
-    };
-    hose = null;
-    pumping = false;
-    veg = null;
-    pops = [];
-
-    // Spawn enemies ON the tunnel network
-    const spawnCells = [];
-    for (let r = SURFACE; r < ROWS; r++)
-      for (let c = 0; c < COLS; c++)
-        if (map[r][c] === EMPTY && !(c === sc && r <= SURFACE + 2))
-          spawnCells.push({ c, r });
-
-    function pickSpawn(preferDeep) {
-      const pool = spawnCells.filter((p) => preferDeep ? p.r >= 9 : p.r < 12);
-      const use = pool.length ? pool : spawnCells;
-      return use[(Math.random() * use.length) | 0] || { c: 10, r: 6 };
-    }
-
-    enemies = [];
-    const nPooka = Math.min(2 + ((lv - 1) / 2 | 0), 5);
-    const nFygar = Math.min(1 + ((lv - 1) / 2 | 0), 4);
-    for (let i = 0; i < nPooka; i++) {
-      const s = pickSpawn(i > 0);
-      enemies.push(makeEnemy("pooka", s.c, s.r));
-    }
-    for (let i = 0; i < nFygar; i++) {
-      const s = pickSpawn(true);
-      enemies.push(makeEnemy("fygar", s.c, s.r));
-    }
+    } else if (e.st === "inflate") {
+      const hooked = harpoon && harpoon.target === e;
+      if (++e.deflT > (hooked ? 55 : 40)) { e.deflT = 0; e.inflate--; if (e.inflate <= 0) { e.inflate = 0; e.st = e.flee ? "flee" : "move"; if (hooked) harpoon = null; e.acc = 0; if (!aligned(e.x) || !alignedY(e.y)) { e.x = Math.round(e.x / 16) * 16; e.y = ROW0 + Math.round((e.y - ROW0) / 16) * 16; } } }
+    } else if (e.st === "pop") { if (e.t > 24) e.dead = true; }
   }
-
-  function makeEnemy(type, c, r) {
-    const dirs = [L, R, U, D];
-    return {
-      type,
-      x: midX(c), y: midY(r),
-      dir: dirs[(Math.random() * 4) | 0],
-      state: "roam", // roam | inflate | ghost | crushed | dead
-      inflate: 0,
-      inflateT: 0,
-      ghostT: 0,
-      anger: 0,        // builds while stuck → ghost
-      moveBudget: 0,
-      fireT: 1500 + Math.random() * 2000,
-      fire: null,
-      bob: Math.random() * 1000,
-      step: 0,
-    };
+  enemies = enemies.filter(e => !e.dead && !e.gone);
+  // collisions with player
+  if (player.dead === 0) for (const e of enemies) {
+    const harmful = e.st === "move" || e.st === "ghost" || e.st === "fire" || (e.st === "flee");
+    if (harmful && Math.abs(e.x - player.x) < 11 && Math.abs(e.y - player.y) < 11) { killPlayer(); break; }
+    if (e.st === "fire" && e.t >= 36) { const len = fireLen(e); const fx0 = e.fx > 0 ? e.x + 14 : e.x + 2 - len, fx1 = fx0 + len;
+      if (player.x + 13 > fx0 && player.x + 3 < fx1 && Math.abs(player.y - e.y) < 10) { killPlayer(); break; } }
   }
+}
+function fireLen(e) { const t = e.t - 36; return t < 0 ? 0 : t < 12 ? 16 : t < 24 ? 32 : 48; }
 
-  function beginLevel(n) {
-    level = n;
-    buildLevel(level);
-    state = "ready";
-    readyT = 1600;
-    hold = null;
-    pumping = false;
-    hud();
-    showOV("READY!", "LEVEL " + level, "ready");
-    sfx("start");
-  }
-
-  function beginGame() {
-    unlockAudio();
-    score = 0; lives = 3; level = 1; extra = false; vegGot = [];
-    beginLevel(1);
-  }
-
-  // ── Dig Dug movement ─────────────────────────────────────────────────────
-  function canDigDugEnter(c, r) {
-    if (!inBounds(c, r)) return false;
-    if (r < 0) return false;
-    if (map[r][c] === ROCK) return false;
-    return true; // can dig dirt
-  }
-
-  function digCell(c, r) {
-    if (!inBounds(c, r) || r < SURFACE) return false;
-    if (map[r][c] === DIRT) {
-      dug[r][c] = Math.min(1, dug[r][c] + 0.55);
-      digdug.digAnim = 1;
-      if (dug[r][c] >= 1) {
-        map[r][c] = EMPTY;
-        sfx("dig");
-        checkRocks();
-        return true;
+/* ---------------- rocks / vegetable ---------------- */
+const CRUSH = [0, 1000, 2500, 4000, 6000, 8000, 10000, 12000, 15000];
+function stepRocks() {
+  for (const r of rocks) {
+    r.t++;
+    if (r.st === "idle") {
+      const under = isDug(r.x + 8, r.y + 20) && isDug(r.x + 4, r.y + 20) && isDug(r.x + 11, r.y + 20);
+      const pBelow = Math.abs(player.x - r.x) < 12 && player.y > r.y && player.y - r.y < 20;
+      if (under && !pBelow) { r.st = "wobble"; r.t = 0; sfx.rockWobble(); }
+    } else if (r.st === "wobble") {
+      if (r.t > 40) { r.st = "fall"; r.t = 0; r.fell = true; sfx.rockFall(); rocksDropped++; }
+    } else if (r.st === "fall") {
+      for (let k = 0; k < 2; k++) {
+        const below = r.y + 16;
+        if (r.y >= 256 || (!isDug(r.x + 8, below + 1) && r.t > 6)) { land(r); break; }
+        r.y++;
+        for (const e of enemies) if (e.st !== "pop" && e.st !== "crushed" && Math.abs(e.x - r.x) < 12 && e.y - r.y < 14 && e.y - r.y > -4) {
+          e.st = "crushed"; e.rock = r; r.crushed.push(e); if (harpoon && harpoon.target === e) harpoon = null; }
+        if (player.dead === 0 && Math.abs(player.x - r.x) < 12 && player.y - r.y < 14 && player.y - r.y > 0) killPlayer(r);
       }
-      return true; // carving
-    }
-    return false;
+      for (const e of r.crushed) { e.y = r.y + 6; e.x = r.x; }
+    } else if (r.st === "crumble") { if (r.t > 36) r.dead = true; }
   }
+  rocks = rocks.filter(r => !r.dead);
+  if (rocksDropped >= 2 && !vegSpawned && mode === "play") { vegSpawned = true; const vi = vegIndex(round); veg = { x: 96, y: ROW0 + 7 * 16, t: 0, i: vi }; sfx.veg(); }
+  if (veg) { veg.t++; if (veg.t > 600) veg = null;
+    else if (player.dead === 0 && Math.abs(player.x - veg.x) < 10 && Math.abs(player.y - veg.y) < 10) { const v = VEG[veg.i][1]; addScore(v); pops.push({ x: veg.x + 8, y: veg.y, txt: String(v), t: 0 }); veg = null; sfx.bonus(); } }
+}
+function land(r) {
+  r.st = "crumble"; r.t = 0; sfx.crush();
+  const n = r.crushed.length;
+  if (n) { const pts = CRUSH[Math.min(8, n)]; addScore(pts); pops.push({ x: r.x + 8, y: r.y, txt: String(pts), t: 0 }); }
+  for (const e of r.crushed) e.dead = true;
+  enemies = enemies.filter(e => !e.dead);
+}
 
-  function moveDigDug(dt) {
-    if (!digdug || digdug.dead || pumping) return;
-    if (hold) digdug.next = hold;
-
-    // Instant reverse
-    if (digdug.next && digdug.next.id === OPP[digdug.dir.id].id) {
-      digdug.dir = digdug.next;
+/* ---------------- flow ---------------- */
+function killPlayer(rock) {
+  if (player.dead) return;
+  player.dead = 1; player.crushed = !!rock; harpoon = null; hurryOn = false;
+  mode = "dying"; modeT = 0; sfx.die();
+}
+function update() {
+  frame++; modeT++;
+  for (const p of pops) p.t++; pops = pops.filter(p => p.t < 70);
+  if (mode === "attract") { return; }
+  if (mode === "ready") { if (modeT > (firstReady ? 150 : 100)) { mode = "play"; modeT = 0; firstReady = false; } pumpEdge = false; return; }
+  if (mode === "play") {
+    stepPlayer(); stepEnemies(); if (mode !== "play") { pumpEdge = false; return; } stepRocks();
+    if (!enemies.length && mode === "play") { mode = "clear"; modeT = 0; harpoon = null; sfx.clear(); }
+  } else if (mode === "dying") {
+    for (const r of rocks) if (r.st === "fall" || r.st === "crumble") { r.t++; if (r.st === "fall") { r.y = Math.min(r.y + 2, 256); if (!isDug(r.x + 8, r.y + 17) || r.y >= 256) land(r); } else if (r.t > 36) r.dead = true; }
+    rocks = rocks.filter(r => !r.dead);
+    if (modeT > 170) {
+      if (lives > 0) { lives--; const keep = enemies.length; spawnActors(); enemies = enemies.slice(0, Math.max(keep, 0)); if (!enemies.length) { mode = "clear"; modeT = 0; } }
+      else { mode = "over"; modeT = 0; sfx.over(); }
     }
-
-    // Turn at centers only
-    if (atCenter(digdug) && digdug.next && digdug.next.id !== digdug.dir.id) {
-      const nc = nearestCol(digdug.x) + digdug.next.x;
-      const nr = nearestRow(digdug.y) + digdug.next.y;
-      if (canDigDugEnter(nc, nr)) {
-        snapCenter(digdug);
-        digdug.dir = digdug.next;
-      }
-    }
-
-    // Blocked ahead?
-    if (atCenter(digdug)) {
-      const nc = nearestCol(digdug.x) + digdug.dir.x;
-      const nr = nearestRow(digdug.y) + digdug.dir.y;
-      if (!canDigDugEnter(nc, nr)) {
-        snapCenter(digdug);
-        return;
-      }
-      // If next is dirt, dig first (slower progress)
-      if (inBounds(nc, nr) && map[nr][nc] === DIRT) {
-        digCell(nc, nr);
-        if (map[nr][nc] === DIRT) {
-          // still carving — inch forward slowly
-          const sp = SPD_DIG_DIRT * (dt / 1000);
-          digdug.x += digdug.dir.x * sp;
-          digdug.y += digdug.dir.y * sp;
-          return;
-        }
-      }
-    }
-
-    const aheadC = nearestCol(digdug.x + digdug.dir.x * TILE * 0.4);
-    const aheadR = nearestRow(digdug.y + digdug.dir.y * TILE * 0.4);
-    const carving = inBounds(aheadC, aheadR) && map[aheadR][aheadC] === DIRT;
-    const sp = (carving ? SPD_DIG_DIRT : SPD_DIG) * (dt / 1000);
-
-    digdug.x += digdug.dir.x * sp;
-    digdug.y += digdug.dir.y * sp;
-
-    // Axis lock
-    if (digdug.dir.x !== 0) digdug.y = midY(nearestRow(digdug.y));
-    else digdug.x = midX(nearestCol(digdug.x));
-
-    digdug.x = clamp(digdug.x, TILE * 0.5, W - TILE * 0.5);
-    digdug.y = clamp(digdug.y, TILE * 0.5, H - TILE * 0.5);
-
-    // Dig under feet
-    digCell(nearestCol(digdug.x), nearestRow(digdug.y));
-    digdug.walk += dt;
-    if (digdug.digAnim > 0) digdug.digAnim -= dt * 0.008;
-    // Soft march while moving through open tunnels (arcade walking music feel)
-    const onTunnel = isTunnel(nearestCol(digdug.x), nearestRow(digdug.y));
-    if (onTunnel && !carving && sp > 0) sfx("walk");
-  }
-
-  // ── Pump ─────────────────────────────────────────────────────────────────
-  function startPump() {
-    if (state !== "play" || !digdug || digdug.dead) return;
-    pumping = true;
-    hose = { dir: digdug.dir, len: 0, max: 3.2, target: null };
-  }
-  function stopPump() {
-    pumping = false;
-    hose = null;
-  }
-
-  function updatePump(dt) {
-    if (!pumping || !hose || !digdug) return;
-    hose.dir = digdug.dir;
-    hose.len = Math.min(hose.max, hose.len + dt * 0.014);
-
-    const c0 = nearestCol(digdug.x);
-    const r0 = nearestRow(digdug.y);
-    const cells = Math.ceil(hose.len);
-    hose.target = null;
-
-    for (let i = 1; i <= cells; i++) {
-      const c = c0 + hose.dir.x * i;
-      const r = r0 + hose.dir.y * i;
-      if (!inBounds(c, r)) break;
-      if (map[r][c] === ROCK) break;
-      if (map[r][c] === DIRT) break; // hose only through open tunnels
-
-      for (const e of enemies) {
-        if (e.state === "dead" || e.state === "crushed") continue;
-        if (nearestCol(e.x) === c && nearestRow(e.y) === r) {
-          hose.target = e;
-          if (e.state === "ghost") e.state = "roam"; // harpoon pulls ghost back
-          e.state = "inflate";
-          e.inflateT += dt;
-          if (e.inflateT > 200) {
-            e.inflate = Math.min(4, e.inflate + 1);
-            e.inflateT = 0;
-            sfx("pump", e.inflate);
-            if (e.inflate >= 4) {
-              popEnemy(e);
-              stopPump();
-            }
-          }
-          return;
-        }
-      }
+  } else if (mode === "clear") {
+    if (modeT > 170) { round++; startRound(false); }
+  } else if (mode === "over") {
+    if (modeT > 200) {
+      const rank = table.findIndex(t => score > t[0]);
+      if (rank >= 0) { entry = { rank, chars: [0, 0, 0], pos: 0 }; mode = "entry"; modeT = 0; sfx.hiscore(); }
+      else { mode = "attract"; modeT = 0; }
     }
   }
-
-  function popEnemy(e) {
-    const pts = depthScore(nearestRow(e.y));
-    e.state = "dead";
-    addScore(pts);
-    sfx("pop");
-    pops.push({ x: e.x, y: e.y, p: pts, t: 900 });
-    checkClear();
-  }
-
-  function checkClear() {
-    if (enemies.every((e) => e.state === "dead" || e.state === "crushed")) {
-      state = "clear";
-      clearT = 1800;
-      sfx("clear");
+  pumpEdge = false;
+}
+const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ. ";
+function entryKey(k) {
+  if (!entry) return;
+  const c = entry.chars;
+  if (k === "U") c[entry.pos] = (c[entry.pos] + 1) % ALPHA.length;
+  else if (k === "D") c[entry.pos] = (c[entry.pos] + ALPHA.length - 1) % ALPHA.length;
+  else if (k === "L") entry.pos = Math.max(0, entry.pos - 1);
+  else if (k === "R" || k === "OK") {
+    entry.pos++;
+    if (entry.pos > 2) {
+      table.splice(entry.rank, 0, [score, c.map(i => ALPHA[i]).join("")]); table.length = 5;
+      localStorage.setItem(TABLE_KEY, JSON.stringify(table)); entry = null; mode = "attract"; modeT = 0;
     }
   }
+}
 
-  // ── Rocks ────────────────────────────────────────────────────────────────
-  function checkRocks() {
-    for (const rk of rocks) {
-      if (rk.gone || rk.falling) continue;
-      const below = rk.r + 1;
-      if (below >= ROWS) continue;
-      if (map[below][rk.c] === EMPTY) {
-        rk.warn += 1;
-        if (rk.warn >= 2) {
-          rk.falling = true;
-          rk.fallV = 40;
-          if (map[rk.r][rk.c] === ROCK) map[rk.r][rk.c] = EMPTY;
-          sfx("rock");
-        }
-      } else {
-        rk.warn = 0;
-      }
-    }
+/* ---------------- drawing ---------------- */
+const RED = "#ff0000", WHITE = "#dedede";
+function drawHUD() {
+  if (mode !== "play" || (frame >> 4) & 1) text("1UP", 24, 0, RED);
+  text("HIGH SCORE", 72, 0, RED);
+  text(score ? String(score) : "00", 56, 8, WHITE, "r");
+  text(String(high || 10000), 136, 8, WHITE, "r");
+  text("ROUND", 176, 272, WHITE);
+  text(String(round), 216, 280, WHITE, "r");
+  if (mode !== "attract") for (let i = 0; i < Math.min(lives, 6); i++) spr(S.dd[0], i * 16, 272, "R", 1);
+}
+function drawFlowers() {
+  let x = 216; const big = Math.floor(round / 10), small = round % 10;
+  for (let i = 0; i < small && x > 140; i++) { x -= 8; ctx.drawImage(S.flowerS, x + 2, 33); }
+  for (let i = 0; i < big && x > 140; i++) { x -= 10; ctx.drawImage(S.flowerB, x + 1, 30); }
+}
+function drawY(y) { return y < 48 ? y - (48 - y) / 2 : y; }
+function drawEnemy(e) {
+  const x = e.x, y = drawY(e.y), fr = (e.anim >> 4) & 1, sp = e.type === "pooka" ? S.pooka[fr] : S.fygar[fr];
+  const face = e.fx < 0 ? "L" : "R";
+  if (e.st === "ghost" || (e.st === "flee" && e.fleePh === 1)) {
+    if (e.st === "flee" || !isDug(x + 8, e.y + 8) || (frame & 8)) spr(S.eyes, x, y, "R"); else spr(sp, x, y, face);
+    return;
   }
-
-  function updateRocks(dt) {
-    for (const rk of rocks) {
-      if (rk.gone) continue;
-      if (rk.crushT > 0) {
-        rk.crushT -= dt;
-        if (rk.crushT <= 0) rk.gone = true;
-        continue;
-      }
-      if (!rk.falling) {
-        const below = rk.r + 1;
-        if (below < ROWS && map[below][rk.c] === EMPTY) {
-          rk.warn += dt;
-          if (rk.warn > 180) {
-            rk.falling = true;
-            rk.fallV = 40;
-            if (map[rk.r][rk.c] === ROCK) map[rk.r][rk.c] = EMPTY;
-            sfx("rock");
-          }
-        } else rk.warn = 0;
-        continue;
-      }
-
-      rk.fallV = Math.min(SPD_ROCK, rk.fallV + 500 * (dt / 1000));
-      rk.y += rk.fallV * (dt / 1000);
-      rk.r = nearestRow(rk.y);
-
-      // Land on dirt / rock / bottom
-      const under = rk.r + 1;
-      let land = false;
-      if (under >= ROWS) {
-        rk.r = ROWS - 1; land = true;
-      } else if (map[under][rk.c] === DIRT || map[under][rk.c] === ROCK) {
-        land = true;
-      }
-      if (land) {
-        rk.y = midY(rk.r);
-        rk.falling = false;
-        map[rk.r][rk.c] = ROCK;
-        dug[rk.r][rk.c] = 0;
-      }
-
-      // Crush
-      for (const e of enemies) {
-        if (e.state === "dead" || e.state === "crushed") continue;
-        if (Math.hypot(e.x - rk.x, e.y - rk.y) < TILE * 0.65) {
-          e.state = "crushed";
-          const pts = depthScore(nearestRow(e.y)) * 2;
-          addScore(pts);
-          pops.push({ x: e.x, y: e.y, p: pts, t: 900 });
-          sfx("pop");
-          const vi = Math.min(level - 1, VEG.length - 1);
-          veg = { i: vi, p: VEG[vi].p, e: VEG[vi].e, x: e.x, y: e.y, t: 7000 };
-          checkClear();
-        }
-      }
-      if (digdug && !digdug.dead && Math.hypot(digdug.x - rk.x, digdug.y - rk.y) < TILE * 0.5) {
-        killPlayer();
-      }
+  if (e.st === "inflate") { const s = 1 + e.inflate * 0.22; spr(sp, x, y, face, s); return; }
+  if (e.st === "pop") { if (e.t < 10) spr(sp, x, y, face, 1.9); else { ctx.fillStyle = WHITE; for (let a = 0; a < 8; a++) { const r = 6 + (e.t - 10); ctx.fillRect(x + 8 + Math.cos(a * 0.785) * r, y + 8 + Math.sin(a * 0.785) * r, 2, 2); } } return; }
+  if (e.st === "crushed") { spr(sp, x, y + 4, face, 1, 0.5); return; }
+  if (e.st === "fire") {
+    if (e.t < 36) { if ((e.t >> 2) & 1) spr(sp, x, y, face); else { ctx.globalAlpha = 0.6; spr(sp, x, y, face); ctx.globalAlpha = 1; } return; }
+    spr(sp, x, y, face);
+    const len = fireLen(e), fx0 = e.fx > 0 ? x + 14 : x + 2 - len;
+    for (let i = 0; i < len; i += 4) {
+      const h = 3 + Math.min(i, len - i) / 3 + ((i + frame) & 2);
+      ctx.fillStyle = i % 8 ? "#ff2000" : "#ffb800"; ctx.fillRect(fx0 + i, y + 8 - h / 2, 4, h);
+      ctx.fillStyle = "#ffff80"; ctx.fillRect(fx0 + i + 1, y + 7, 2, 2);
     }
+    return;
   }
-
-  // ── Enemy AI (cell-to-cell, no center-snap freeze) ───────────────────────
-  function enemySpd(e) {
-    const base = e.state === "ghost" ? SPD_GHOST : SPD_ENEMY;
-    return base + Math.min(level, 8) * 5;
+  spr(sp, x, y, face);
+}
+function drawVeg(v) {
+  const x = v.x, y = v.y, i = v.i;
+  if (i === 9) { ctx.drawImage(S.galaxian, x + 2, y + 3); return; }
+  const C = [["#ff8c00","#00b806"],["#ffffff","#00b806"],["#ff2000","#ffffff"],["#00b806","#7cff3c"],["#9a28d8","#00b806"],
+    ["#00b806","#ffde00"],["#ff2000","#00b806"],["#ffde97","#00b806"],["#00b806","#ff2000"],null,["#ffb800","#00b806"]][i];
+  ctx.fillStyle = C[0];
+  if (i === 0) { for (let k = 0; k < 10; k++) ctx.fillRect(x + 4 + k * 0.6, y + 4 + k, 6 - k * 0.6, 1); ctx.fillStyle = C[1]; ctx.fillRect(x + 3, y + 1, 2, 4); ctx.fillRect(x + 6, y, 2, 4); }
+  else if (i === 2) { ctx.beginPath(); ctx.arc(x + 8, y + 8, 7, Math.PI, 0); ctx.fill(); ctx.fillStyle = C[1]; ctx.fillRect(x + 5, y + 8, 6, 6); ctx.fillRect(x + 5, y + 4, 2, 2); ctx.fillRect(x + 10, y + 3, 2, 2); }
+  else if (i === 3) { ctx.fillRect(x + 2, y + 6, 12, 5); ctx.fillStyle = C[1]; for (let k = 3; k < 14; k += 3) ctx.fillRect(x + k, y + 7, 1, 1); }
+  else if (i === 4) { ctx.beginPath(); ctx.ellipse(x + 8, y + 9, 5, 6, 0.5, 0, 7); ctx.fill(); ctx.fillStyle = C[1]; ctx.fillRect(x + 9, y + 1, 4, 3); }
+  else if (i === 8) { ctx.beginPath(); ctx.arc(x + 8, y + 8, 7, 0, 7); ctx.fill(); ctx.fillStyle = C[1]; ctx.beginPath(); ctx.arc(x + 8, y + 8, 5, 0, 7); ctx.fill(); ctx.fillStyle = "#000"; ctx.fillRect(x + 6, y + 6, 1, 1); ctx.fillRect(x + 9, y + 9, 1, 1); }
+  else if (i === 10) { ctx.beginPath(); ctx.ellipse(x + 8, y + 10, 5, 6, 0, 0, 7); ctx.fill(); ctx.fillStyle = "#a06000"; for (let k = 0; k < 4; k++) ctx.fillRect(x + 4 + k * 2, y + 6 + (k & 1) * 3, 1, 6); ctx.fillStyle = C[1]; ctx.fillRect(x + 7, y, 2, 4); ctx.fillRect(x + 4, y + 1, 2, 3); ctx.fillRect(x + 10, y + 1, 2, 3); }
+  else { ctx.beginPath(); ctx.arc(x + 8, y + 9, 6, 0, 7); ctx.fill(); ctx.fillStyle = C[1]; ctx.fillRect(x + 7, y, 2, 4); ctx.fillRect(x + 5, y + 2, 6, 1); if (i === 1) { ctx.fillStyle = "#c040c0"; ctx.fillRect(x + 3, y + 5, 10, 3); } }
+}
+function drawPlay() {
+  ctx.fillStyle = "#000197"; ctx.fillRect(0, 0, W, DIRT_TOP);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, DIRT_TOP, W, 232); ctx.fillRect(0, 272, W, 16);
+  ctx.drawImage(dirt, 0, 0);
+  drawFlowers();
+  for (const r of rocks) {
+    let ox = 0; if (r.st === "wobble") ox = (r.t >> 2) & 1 ? 1 : -1;
+    if (r.st === "crumble") { if (r.t < 18) ctx.drawImage(S.rockHalf, r.x, r.y - 4); else if ((r.t >> 2) & 1) ctx.drawImage(S.rockHalf, r.x, r.y); }
+    else ctx.drawImage(S.rock, r.x + ox, r.y);
   }
-
-  function tunnelNeighbors(c, r) {
-    const out = [];
-    for (const d of ORDER) {
-      const nc = c + d.x, nr = r + d.y;
-      if (inBounds(nc, nr) && isTunnel(nc, nr)) out.push(d);
-    }
-    return out;
-  }
-
-  function pickRoamDir(e) {
-    const c = nearestCol(e.x), r = nearestRow(e.y);
-    const rev = OPP[e.dir.id];
-    let opts = tunnelNeighbors(c, r).filter((d) => d.id !== rev.id);
-    if (!opts.length) opts = tunnelNeighbors(c, r);
-    if (!opts.length) {
-      // No tunnel exit — go ghost (float through dirt)
-      e.state = "ghost";
-      e.ghostT = 2800 + Math.random() * 1800;
-      e.anger = 0;
-      sfx("ghost");
-      // pick any free non-rock direction
-      const gopts = ORDER.filter((d) => {
-        const nc = c + d.x, nr = r + d.y;
-        return inBounds(nc, nr) && map[nr][nc] !== ROCK && nr >= SURFACE - 1;
-      });
-      e.dir = gopts.length ? gopts[(Math.random() * gopts.length) | 0] : R;
-      return;
-    }
-
-    // Prefer chase Dig Dug along open tunnels
-    if (digdug && !digdug.dead && Math.random() < 0.65) {
-      const pc = nearestCol(digdug.x), pr = nearestRow(digdug.y);
-      let best = opts[0], bestD = 1e9;
-      for (const d of opts) {
-        const dd = (c + d.x - pc) ** 2 + (r + d.y - pr) ** 2;
-        if (dd < bestD) { bestD = dd; best = d; }
-      }
-      e.dir = best;
+  if (veg && (veg.t < 480 || (veg.t >> 3) & 1)) drawVeg(veg);
+  for (const e of enemies) drawEnemy(e);
+  // player
+  const p = player;
+  if (p) {
+    if (p.dead) {
+      const t = modeT;
+      if (p.crushed) spr(S.dd[0], p.x, p.y + 4, p.face, 1, 0.5);
+      else if (t < 40) spr(S.dd[0], p.x, p.y, p.face);
+      else if (t < 100) spr(S.dd[(t >> 3) & 1], p.x, p.y, "RDLU"[(t >> 3) & 3], 1 - (t - 40) / 90, 1 - (t - 40) / 120);
+      else if (t < 130) { ctx.fillStyle = WHITE; ctx.fillRect(p.x + 7, p.y + 7, 2, 2); }
     } else {
-      e.dir = opts[(Math.random() * opts.length) | 0];
-    }
-    e.anger = 0;
-  }
-
-  function pickGhostDir(e) {
-    const c = nearestCol(e.x), r = nearestRow(e.y);
-    const rev = OPP[e.dir.id];
-    // Aim toward nearest tunnel cell, or Dig Dug
-    let opts = ORDER.filter((d) => {
-      if (d.id === rev.id) return false;
-      const nc = c + d.x, nr = r + d.y;
-      return inBounds(nc, nr) && map[nr][nc] !== ROCK && nr >= SURFACE - 1;
-    });
-    if (!opts.length) {
-      opts = ORDER.filter((d) => {
-        const nc = c + d.x, nr = r + d.y;
-        return inBounds(nc, nr) && map[nr][nc] !== ROCK;
-      });
-    }
-    if (!opts.length) { e.dir = rev; return; }
-
-    // Prefer moving into tunnels; else toward player
-    const tunnelOpts = opts.filter((d) => isTunnel(c + d.x, r + d.y));
-    const use = tunnelOpts.length ? tunnelOpts : opts;
-    if (digdug && !digdug.dead) {
-      const pc = nearestCol(digdug.x), pr = nearestRow(digdug.y);
-      let best = use[0], bestD = 1e9;
-      for (const d of use) {
-        const dd = (c + d.x - pc) ** 2 + (r + d.y - pr) ** 2;
-        if (dd < bestD) { bestD = dd; best = d; }
-      }
-      e.dir = best;
-    } else {
-      e.dir = use[(Math.random() * use.length) | 0];
-    }
-  }
-
-  function stepEntity(e, sp, dt, mode) {
-    // Continuous motion; only decide turns at tile centers — never snap-loop
-    const step = sp * (dt / 1000);
-    const c = nearestCol(e.x);
-    const r = nearestRow(e.y);
-
-    if (atCenter(e)) {
-      // Soft-align once (not every subpixel while near center)
-      if (Math.abs(e.x - midX(c)) > 0.01 || Math.abs(e.y - midY(r)) > 0.01) {
-        e.x = midX(c);
-        e.y = midY(r);
-      }
-      if (mode === "ghost") pickGhostDir(e);
-      else pickRoamDir(e);
-
-      // If still blocked after pick, try reverse / ghost
-      const nc = c + e.dir.x, nr = r + e.dir.y;
-      if (mode !== "ghost" && (!inBounds(nc, nr) || !isTunnel(nc, nr))) {
-        e.anger += dt + 80;
-        if (e.anger > 400) {
-          e.state = "ghost";
-          e.ghostT = 2500 + Math.random() * 2000;
-          sfx("ghost");
-        }
-        return; // wait for new decision next frame
-      }
-    } else {
-      // Approaching next tile — if that tile became blocked, stop at center
-      const nc = c + e.dir.x, nr = r + e.dir.y;
-      if (mode !== "ghost" && inBounds(nc, nr) && !isTunnel(nc, nr)) {
-        // Pull back to current center and re-decide next frame
-        e.x = midX(c);
-        e.y = midY(r);
-        e.anger += dt;
-        return;
-      }
-    }
-
-    e.x += e.dir.x * step;
-    e.y += e.dir.y * step;
-
-    // Axis lock
-    if (e.dir.x !== 0) e.y = midY(nearestRow(e.y));
-    else e.x = midX(nearestCol(e.x));
-
-    e.x = clamp(e.x, TILE * 0.5, W - TILE * 0.5);
-    e.y = clamp(e.y, midY(SURFACE - 1), H - TILE * 0.5);
-    e.step += step;
-  }
-
-  function updateEnemies(dt) {
-    for (const e of enemies) {
-      e.bob += dt;
-      if (e.state === "dead" || e.state === "crushed") continue;
-
-      // Inflating — frozen in place
-      if (e.state === "inflate") {
-        if (!pumping || !hose || hose.target !== e) {
-          e.inflateT += dt;
-          if (e.inflateT > 350) {
-            e.inflate = Math.max(0, e.inflate - 1);
-            e.inflateT = 0;
-            if (e.inflate <= 0) e.state = "roam";
-          }
-        }
-        continue;
-      }
-
-      if (e.state === "ghost") {
-        e.ghostT -= dt;
-        stepEntity(e, enemySpd(e), dt, "ghost");
-        // Re-enter roam when over a tunnel and timer done
-        if (e.ghostT <= 0 && isTunnel(nearestCol(e.x), nearestRow(e.y))) {
-          e.state = "roam";
-          e.anger = 0;
-          e.x = midX(nearestCol(e.x));
-          e.y = midY(nearestRow(e.y));
-        }
-      } else {
-        // roam tunnels
-        stepEntity(e, enemySpd(e), dt, "roam");
-      }
-
-      // Fygar fire breath (horizontal only, like arcade)
-      if (e.type === "fygar" && e.state === "roam") {
-        e.fireT -= dt;
-        if (e.fire) {
-          e.fire.life -= dt;
-          e.fire.x += e.fire.dir.x * 160 * (dt / 1000);
-          if (digdug && !digdug.dead) {
-            if (Math.abs(digdug.y - e.fire.y) < TILE * 0.45
-              && ((e.fire.dir.x > 0 && digdug.x >= e.fire.x - 4 && digdug.x <= e.fire.x + TILE * 1.4)
-                || (e.fire.dir.x < 0 && digdug.x <= e.fire.x + 4 && digdug.x >= e.fire.x - TILE * 1.4))) {
-              killPlayer();
-            }
-          }
-          if (e.fire.life <= 0) e.fire = null;
-        } else if (e.fireT <= 0 && digdug && !digdug.dead) {
-          if (nearestRow(e.y) === nearestRow(digdug.y)
-            && Math.abs(e.x - digdug.x) < TILE * 5
-            && Math.abs(e.x - digdug.x) > TILE * 0.8) {
-            const fd = digdug.x > e.x ? R : L;
-            // clear horizontal path check simplified
-            e.fire = { x: e.x + fd.x * TILE * 0.7, y: e.y, dir: fd, life: 420 };
-            e.dir = fd;
-            e.fireT = 2600 + Math.random() * 1800;
-            sfx("fire");
-          } else {
-            e.fireT = 500 + Math.random() * 700;
-          }
-        }
-      }
-
-      if (digdug && !digdug.dead && e.state !== "inflate"
-        && Math.hypot(e.x - digdug.x, e.y - digdug.y) < TILE * 0.46) {
-        killPlayer();
+      const sp = harpoon ? S.ddPump : S.dd[(p.anim >> 3) & 1];
+      spr(sp, p.x, p.y, p.face);
+      if (harpoon && harpoon.len > 0) {
+        const [dx, dy] = DIRS[harpoon.dir], cx = p.x + 8 + dx * 8, cy = p.y + 8 + dy * 8 + (dx ? 1 : 0), L = harpoon.len;
+        ctx.fillStyle = WHITE;
+        if (dx) ctx.fillRect(dx > 0 ? cx : cx - L, cy, L, 1); else ctx.fillRect(cx, dy > 0 ? cy : cy - L, 1, L);
+        const tx = cx + dx * L, ty = cy + dy * L; ctx.fillStyle = "#ff4040";
+        ctx.fillRect(tx - 1 - (dx < 0 ? 1 : 0), ty - 1 - (dy < 0 ? 1 : 0), 3, 3);
       }
     }
   }
-
-  function killPlayer() {
-    if (!digdug || digdug.dead || state !== "play") return;
-    digdug.dead = true;
-    lives--;
-    hud();
-    sfx("die");
-    state = "die";
-    dieT = 1500;
-    pumping = false;
-    hose = null;
+  for (const pp of pops) text(pp.txt, pp.x, drawY(pp.y) + 4 - Math.min(pp.t, 20) / 5, WHITE, "c");
+  if (mode === "ready") { if (firstReady) text("PLAYER 1", 112, 128, WHITE, "c"); text("READY", 112, 168, WHITE, "c"); }
+  if (mode === "over" || mode === "dying" && lives === 0 && modeT > 150) text("GAME OVER", 112, 168, WHITE, "c");
+  if (paused) text("PAUSE", 112, 168, WHITE, "c");
+}
+function drawLogo(y) {
+  // roof
+  ctx.fillStyle = "#ff6eb4";
+  for (let i = 0; i < 5; i++) { const x = 36 + i * 32; ctx.beginPath(); ctx.moveTo(x - 2, y + 14); ctx.lineTo(x + 18, y); ctx.lineTo(x + 34, y + 14); ctx.lineTo(x + 26, y + 14); ctx.lineTo(x + 18, y + 7); ctx.lineTo(x + 6, y + 14); ctx.fill(); }
+  // letters, big
+  const str = "DIG DUG"; ctx.fillStyle = "#ff8c00";
+  for (let i = 0; i < str.length; i++) { const g = GLYPH[str[i]]; if (!g) continue;
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (g[r] & (16 >> c)) ctx.fillRect(28 + i * 24 + c * 4, y + 16 + r * 4, 4, 4); }
+}
+function drawAttract() {
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#000197"; ctx.fillRect(0, 16, W, 30);
+  ctx.fillStyle = "#dede00"; ctx.fillRect(0, 46, W, 226);
+  drawLogo(56);
+  const ph = Math.floor(modeT / 360) % 2;
+  if (ph === 0) {
+    spr(S.dd[(frame >> 3) & 1], 40, 150, "R", 2); spr(S.pooka[(frame >> 4) & 1], 112, 158, "L", 1.5); spr(S.fygar[(frame >> 4) & 1], 168, 150, "L", 2);
+    text(credits ? "PUSH START BUTTON" : "INSERT COIN", 112, 196, (frame >> 5) & 1 ? "#000197" : "#ff0000", "c");
+    text("1 PLAYER  1 COIN", 112, 214, "#000197", "c");
+    text("1ST BONUS 10000 PTS", 112, 232, "#000197", "c");
+    text("AND EVERY 40000 PTS", 112, 244, "#000197", "c");
+  } else {
+    text("BEST 5", 112, 128, "#ff0000", "c");
+    table.forEach((t, i) => { text((i + 1) + ".", 40, 148 + i * 16, "#000197"); text(String(t[0]), 136, 148 + i * 16, "#000197", "r"); text(t[1], 152, 148 + i * 16, "#ff0000"); });
   }
+  text("TRIBUTE  1982 STYLE", 112, 260, "#000197", "c");
+  text("CREDIT " + credits, 16, 272, WHITE);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, 16);
+  drawHUD();
+}
+function drawEntry() {
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); drawHUD();
+  text("ENTER YOUR INITIALS", 112, 80, "#ff0000", "c");
+  text("SCORE " + score, 112, 104, WHITE, "c");
+  for (let i = 0; i < 3; i++) text(ALPHA[entry.chars[i]], 96 + i * 12, 136, i === entry.pos && (frame & 16) ? "#ffde00" : WHITE);
+  text("UP/DOWN  LETTER", 112, 176, "#a0a0ff", "c");
+  text("PUMP  NEXT", 112, 192, "#a0a0ff", "c");
+}
+function draw() {
+  if (mode === "attract") drawAttract();
+  else if (mode === "entry") drawEntry();
+  else { drawPlay(); drawHUD(); if (mode === "clear" && modeT > 40) text("ROUND CLEAR", 112, 168, WHITE, "c"); }
+}
 
-  function updateVeg(dt) {
-    if (!veg) return;
-    veg.t -= dt;
-    if (veg.t <= 0) { veg = null; return; }
-    if (digdug && !digdug.dead && Math.hypot(digdug.x - veg.x, digdug.y - veg.y) < TILE * 0.7) {
-      addScore(veg.p);
-      vegGot.push(veg.i);
-      if (vegGot.length > 6) vegGot.shift();
-      sfx("veg");
-      pops.push({ x: veg.x, y: veg.y, p: veg.p, t: 800 });
-      veg = null;
-      hud();
-    }
-  }
-
-  // ── Update ───────────────────────────────────────────────────────────────
-  function update(dt) {
-    time += dt;
-    flowerPhase += dt;
-    if (state === "title" || state === "pause" || state === "over") return;
-
-    if (state === "ready") {
-      readyT -= dt;
-      if (readyT <= 0) { state = "play"; hideOV(); }
-      return;
-    }
-    if (state === "die") {
-      dieT -= dt;
-      if (dieT <= 0) {
-        if (lives <= 0) {
-          state = "over";
-          showOV("GAME OVER", isTouchPrimary() ? "TAP TO RESTART" : "PRESS SPACE", "gameover");
-          return;
-        }
-        buildLevel(level);
-        state = "ready";
-        readyT = 1400;
-        showOV("READY!", "", "ready");
-      }
-      return;
-    }
-    if (state === "clear") {
-      clearT -= dt;
-      if (clearT <= 0) beginLevel(level + 1);
-      return;
-    }
-
-    moveDigDug(dt);
-    if (pumping) {
-      if (hold) digdug.dir = hold;
-      updatePump(dt);
-    }
-    updateEnemies(dt);
-    updateRocks(dt);
-    updateVeg(dt);
-
-    for (const p of pops) p.t -= dt;
-    pops = pops.filter((p) => p.t > 0);
-    if ((time / 250 | 0) !== ((time - dt) / 250 | 0)) checkRocks();
-  }
-
-  // ── Drawing (arcade-inspired sprites) ────────────────────────────────────
-  function drawWorld() {
-    // Sky
-    const sky = ctx.createLinearGradient(0, 0, 0, SURFACE * TILE);
-    sky.addColorStop(0, "#4eb4ff");
-    sky.addColorStop(1, "#a8dcff");
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, SURFACE * TILE);
-
-    // Clouds
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    for (let i = 0; i < 3; i++) {
-      const cx = (i * 97 * S + 40 * S + (time * 0.01 * S) % W) % (W + 40 * S) - 20 * S;
-      ctx.beginPath();
-      ctx.arc(cx, 18 * S, 10 * S, 0, Math.PI * 2);
-      ctx.arc(cx + 12 * S, 16 * S, 12 * S, 0, Math.PI * 2);
-      ctx.arc(cx + 24 * S, 18 * S, 9 * S, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Grass
-    ctx.fillStyle = "#3cb043";
-    ctx.fillRect(0, SURFACE * TILE - 8 * S, W, 8 * S);
-    // Flowers
-    for (let c = 0; c < COLS; c++) {
-      const fx = midX(c);
-      const fy = SURFACE * TILE - 12 * S;
-      ctx.fillStyle = c % 3 === 0 ? "#ff5577" : c % 3 === 1 ? "#ffee55" : "#ffffff";
-      ctx.beginPath();
-      ctx.arc(fx, fy + Math.sin(flowerPhase / 400 + c) * 1.5 * S, 2.5 * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#2a8020";
-      ctx.lineWidth = 1 * S;
-      ctx.beginPath();
-      ctx.moveTo(fx, fy + 2 * S);
-      ctx.lineTo(fx, SURFACE * TILE - 2 * S);
-      ctx.stroke();
-    }
-
-    // Dirt layers + tunnels
-    for (let r = SURFACE; r < ROWS; r++) {
-      const band = dirtBand(r);
-      for (let c = 0; c < COLS; c++) {
-        const x = c * TILE, y = r * TILE;
-        if (map[r][c] === EMPTY) {
-          // Black tunnel with soil rim
-          ctx.fillStyle = "#0c0602";
-          ctx.fillRect(x, y, TILE, TILE);
-          ctx.strokeStyle = DIRT_EDGE[band];
-          ctx.lineWidth = 2 * S;
-          // only draw edges adjacent to dirt
-          if (c === 0 || map[r][c - 1] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x + S, y); ctx.lineTo(x + S, y + TILE); ctx.stroke();
-          }
-          if (c === COLS - 1 || map[r][c + 1] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x + TILE - S, y); ctx.lineTo(x + TILE - S, y + TILE); ctx.stroke();
-          }
-          if (r === SURFACE || map[r - 1][c] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x, y + S); ctx.lineTo(x + TILE, y + S); ctx.stroke();
-          }
-          if (r === ROWS - 1 || map[r + 1][c] !== EMPTY) {
-            ctx.beginPath(); ctx.moveTo(x, y + TILE - S); ctx.lineTo(x + TILE, y + TILE - S); ctx.stroke();
-          }
-        } else {
-          // Dirt (or rock cell base)
-          ctx.fillStyle = DIRT_COLS[band];
-          ctx.fillRect(x, y, TILE, TILE);
-          // Horizontal strata lines
-          ctx.strokeStyle = "rgba(0,0,0,0.12)";
-          ctx.lineWidth = 1 * S;
-          ctx.beginPath();
-          ctx.moveTo(x, y + TILE * 0.35);
-          ctx.lineTo(x + TILE, y + TILE * 0.35);
-          ctx.moveTo(x, y + TILE * 0.7);
-          ctx.lineTo(x + TILE, y + TILE * 0.7);
-          ctx.stroke();
-          // Partial dig
-          if (map[r][c] === DIRT && dug[r][c] > 0.05 && dug[r][c] < 1) {
-            ctx.fillStyle = "#0c0602";
-            const hole = dug[r][c] * TILE * 0.9;
-            ctx.beginPath();
-            ctx.arc(x + TILE / 2, y + TILE / 2, hole / 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
-          // Speckles
-          ctx.fillStyle = "rgba(0,0,0,0.15)";
-          ctx.fillRect(x + 5 * S, y + 7 * S, 2 * S, 2 * S);
-          ctx.fillRect(x + 16 * S, y + 18 * S, 2 * S, 2 * S);
-        }
-      }
-    }
-
-    for (const rk of rocks) {
-      if (!rk.gone) drawRock(rk.x, rk.y);
-    }
-  }
-
-  function drawRock(x, y) {
-    ctx.fillStyle = "#7a7a7a";
-    ctx.beginPath();
-    ctx.moveTo(x - 2 * S, y - 11 * S);
-    ctx.lineTo(x + 11 * S, y - 5 * S);
-    ctx.lineTo(x + 10 * S, y + 11 * S);
-    ctx.lineTo(x - 11 * S, y + 10 * S);
-    ctx.lineTo(x - 12 * S, y - 3 * S);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#9a9a9a";
-    ctx.beginPath();
-    ctx.moveTo(x - 2 * S, y - 11 * S);
-    ctx.lineTo(x + 6 * S, y - 8 * S);
-    ctx.lineTo(x + 2 * S, y);
-    ctx.lineTo(x - 8 * S, y - 2 * S);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#555";
-    ctx.fillRect(x - 4 * S, y + 2 * S, 3 * S, 2 * S);
-    ctx.fillRect(x + 3 * S, y + 5 * S, 2 * S, 2 * S);
-  }
-
-  function drawDigDug() {
-    if (!digdug) return;
-    const x = digdug.x, y = digdug.y;
-    const fl = digdug.dir.id === "L" ? -1 : digdug.dir.id === "R" ? 1 : (hold && hold.id === "L" ? -1 : 1);
-
-    if (digdug.dead) {
-      ctx.fillStyle = "#fff";
-      ctx.globalAlpha = 0.8;
-      ctx.beginPath();
-      ctx.arc(x, y, 10 * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = "#c00";
-      ctx.lineWidth = 2 * S;
-      ctx.beginPath();
-      ctx.moveTo(x - 6 * S, y - 6 * S); ctx.lineTo(x + 6 * S, y + 6 * S);
-      ctx.moveTo(x + 6 * S, y - 6 * S); ctx.lineTo(x - 6 * S, y + 6 * S);
-      ctx.stroke();
-      return;
-    }
-
-    const bob = Math.sin(digdug.walk / 80) * 1.2 * S;
-    const yy = y + bob;
-
-    // Shadow
-    ctx.fillStyle = "rgba(0,0,0,0.25)";
-    ctx.beginPath();
-    ctx.ellipse(x, y + 12 * S, 9 * S, 3 * S, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Legs
-    ctx.fillStyle = "#1a3aaa";
-    const leg = Math.sin(digdug.walk / 70) * 3 * S;
-    ctx.fillRect(x - 6 * S, yy + 6 * S, 4 * S, 7 * S + leg);
-    ctx.fillRect(x + 2 * S, yy + 6 * S, 4 * S, 7 * S - leg);
-
-    // Body (white overalls)
-    ctx.fillStyle = "#f5f5f5";
-    ctx.fillRect(x - 8 * S, yy - 10 * S, 16 * S, 18 * S);
-
-    // Blue pants/boots detail
-    ctx.fillStyle = "#2244cc";
-    ctx.fillRect(x - 8 * S, yy + 2 * S, 16 * S, 7 * S);
-
-    // Head
-    ctx.fillStyle = "#ffdbac";
-    ctx.beginPath();
-    ctx.arc(x, yy - 12 * S, 7 * S, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Helmet / hair white
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.arc(x, yy - 14 * S, 7.5 * S, Math.PI, 0);
-    ctx.fill();
-    ctx.fillRect(x - 7.5 * S, yy - 14 * S, 15 * S, 4 * S);
-
-    // Eyes
-    ctx.fillStyle = "#222";
-    ctx.beginPath();
-    ctx.arc(x + fl * 2.5 * S, yy - 13 * S, 1.4 * S, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Pump harpoon gun
-    ctx.fillStyle = "#cc2222";
-    ctx.fillRect(x + fl * 5 * S, yy - 3 * S, fl * 11 * S, 5 * S);
-    ctx.fillStyle = "#888";
-    ctx.fillRect(x + fl * 14 * S, yy - 2 * S, fl * 4 * S, 3 * S);
-
-    // Hose when pumping
-    if (hose) {
-      const hx = x + hose.dir.x * hose.len * TILE;
-      const hy = y + hose.dir.y * hose.len * TILE;
-      ctx.strokeStyle = "#e8e8e8";
-      ctx.lineWidth = 3 * S;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(x + hose.dir.x * 12 * S, y);
-      const mx = (x + hx) / 2 + hose.dir.y * 4 * S;
-      const my = (y + hy) / 2 + Math.abs(hose.dir.x) * 4 * S;
-      ctx.quadraticCurveTo(mx, my, hx, hy);
-      ctx.stroke();
-      ctx.fillStyle = "#aaa";
-      ctx.beginPath();
-      ctx.arc(hx, hy, 4 * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#666";
-      ctx.beginPath();
-      ctx.arc(hx, hy, 2 * S, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  function drawEnemy(e) {
-    if (e.state === "dead") return;
-    const inflate = e.inflate || 0;
-    const sc = S * (1 + inflate * 0.28);
-    const x = e.x;
-    const y = e.y + Math.sin(e.bob / 180) * 1.5 * S;
-
-    if (e.state === "crushed") {
-      ctx.fillStyle = e.type === "pooka" ? "#aa3030" : "#2a7a30";
-      ctx.beginPath();
-      ctx.ellipse(x, y + 6 * S, 12 * S, 4 * S, 0, 0, Math.PI * 2);
-      ctx.fill();
-      return;
-    }
-
-    if (e.state === "ghost") ctx.globalAlpha = 0.5 + 0.15 * Math.sin(e.bob / 100);
-
-    if (e.type === "pooka") {
-      ctx.fillStyle = inflate >= 3 ? "#ff9999" : "#e02020";
-      ctx.beginPath();
-      ctx.ellipse(x, y, 11 * sc, 12 * sc, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.2)";
-      ctx.beginPath();
-      ctx.ellipse(x - 3 * sc, y - 4 * sc, 4 * sc, 5 * sc, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      ctx.arc(x - 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
-      ctx.arc(x + 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#333";
-      ctx.lineWidth = 1.2 * S;
-      ctx.beginPath();
-      ctx.arc(x - 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
-      ctx.arc(x + 4.5 * sc, y - 2 * S, 4.2 * sc, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "#111";
-      const lx = e.dir.x * 1.5 * S, ly = e.dir.y * 1.5 * S;
-      ctx.beginPath();
-      ctx.arc(x - 4.5 * sc + lx, y - 2 * S + ly, 1.6 * sc, 0, Math.PI * 2);
-      ctx.arc(x + 4.5 * sc + lx, y - 2 * S + ly, 1.6 * sc, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#e8c020";
-      ctx.fillRect(x - 9 * sc, y + 9 * sc, 7 * sc, 4 * S);
-      ctx.fillRect(x + 2 * sc, y + 9 * sc, 7 * sc, 4 * S);
-    } else {
-      ctx.fillStyle = inflate >= 3 ? "#b0ffb0" : "#2db84a";
-      ctx.beginPath();
-      ctx.ellipse(x, y, 12 * sc, 10 * sc, 0, 0, Math.PI * 2);
-      ctx.fill();
-      const sx = e.dir.x >= 0 ? 1 : -1;
-      ctx.beginPath();
-      ctx.ellipse(x + sx * 10 * sc, y + 1 * S, 6 * sc, 5 * sc, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      ctx.arc(x + sx * 4 * S, y - 3 * S, 3.2 * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#111";
-      ctx.beginPath();
-      ctx.arc(x + sx * 5 * S, y - 3 * S, 1.4 * S, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#228b38";
-      ctx.beginPath();
-      ctx.moveTo(x - sx * 2 * S, y - 2 * S);
-      ctx.lineTo(x - sx * 14 * S, y - 12 * S);
-      ctx.lineTo(x - sx * 4 * S, y + 2 * S);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#1e7a30";
-      ctx.fillRect(x - 6 * S, y + 8 * sc, 5 * S, 4 * S);
-      ctx.fillRect(x + 2 * S, y + 8 * sc, 5 * S, 4 * S);
-
-      if (e.fire) {
-        const fx = e.fire.x, fy = e.fire.y;
-        const grd = ctx.createLinearGradient(fx, fy, fx + e.fire.dir.x * 28 * S, fy);
-        grd.addColorStop(0, "#ff2200");
-        grd.addColorStop(0.5, "#ff8800");
-        grd.addColorStop(1, "#ffee44");
-        ctx.fillStyle = grd;
-        ctx.beginPath();
-        ctx.moveTo(fx, fy - 5 * S);
-        ctx.lineTo(fx + e.fire.dir.x * 30 * S, fy);
-        ctx.lineTo(fx, fy + 5 * S);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-
-    if (inflate > 0) {
-      ctx.strokeStyle = "rgba(255,255,255,0.55)";
-      ctx.lineWidth = 2 * S;
-      ctx.beginPath();
-      ctx.arc(x, y, (12 + inflate * 5) * S, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-
-    ctx.globalAlpha = 1;
-  }
-
-  function drawVeg() {
-    if (!veg) return;
-    ctx.font = `${20 * S}px serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(veg.e, veg.x, veg.y + Math.sin(time / 200) * 2 * S);
-  }
-
-  function drawPops() {
-    ctx.font = `${9 * S}px 'Press Start 2P', monospace`;
-    ctx.textAlign = "center";
-    for (const p of pops) {
-      ctx.globalAlpha = clamp(p.t / 900, 0, 1);
-      ctx.fillStyle = "#fff";
-      ctx.fillText(String(p.p), p.x, p.y - (900 - p.t) * 0.025 * S);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  function render() {
-    drawWorld();
-    drawVeg();
-    for (const e of enemies) drawEnemy(e);
-    drawDigDug();
-    drawPops();
-
-    if (state === "ready") {
-      ctx.fillStyle = "#f4c430";
-      ctx.font = `${14 * S}px 'Press Start 2P', monospace`;
-      ctx.textAlign = "center";
-      ctx.fillText("READY!", W / 2, H * 0.42);
-    }
-    if (state === "clear") {
-      ctx.fillStyle = "#f4c430";
-      ctx.font = `${12 * S}px 'Press Start 2P', monospace`;
-      ctx.textAlign = "center";
-      ctx.fillText("STAGE CLEAR", W / 2, H * 0.42);
-    }
-  }
-
-  // ── Loop ─────────────────────────────────────────────────────────────────
-  function tick(ts) {
-    if (!prev) prev = ts;
-    let dt = ts - prev;
-    prev = ts;
-    if (dt > 40) dt = 40;
-    if (dt < 0) dt = 0;
-    update(dt);
-    render();
-    requestAnimationFrame(tick);
-  }
-
-  // ── Input ────────────────────────────────────────────────────────────────
-  function setDir(d) {
-    if (!d) return;
-    hold = d;
-    if (digdug && (state === "play" || state === "ready")) {
-      digdug.next = d;
-      if (state === "play" && d.id === OPP[digdug.dir.id].id) digdug.dir = d;
-    }
-  }
-  function clearDir(d) {
-    if (d && hold && d.id === hold.id) hold = null;
-  }
-
-  function togglePauseOrStart() {
-    unlockAudio();
-    if (state === "title" || state === "over") beginGame();
-    else if (state === "play") {
-      state = "pause";
-      showOV("PAUSED", isTouchPrimary() ? "TAP TO RESUME" : "SPACE TO RESUME", "paused");
-    } else if (state === "pause") {
-      state = "play";
-      hideOV();
-    }
-  }
-
-  function toggleMute() {
-    muted = !muted;
-    const btn = document.getElementById("btn-mute");
-    if (btn) {
-      btn.textContent = muted ? "✕" : "♪";
-      btn.classList.toggle("active", muted);
-    }
-  }
-
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "m" || e.key === "M") { toggleMute(); return; }
-    if (e.code === "Space" || e.key === " ") {
-      e.preventDefault();
-      if (state === "title" || state === "over" || state === "pause") togglePauseOrStart();
-      else if (state === "play" && !pumping) startPump();
-      return;
-    }
-    if (e.key === "p" || e.key === "P") {
-      e.preventDefault();
-      if (state === "play" || state === "pause") togglePauseOrStart();
-      return;
-    }
-    const mapK = {
-      ArrowLeft: L, a: L, A: L, KeyA: L,
-      ArrowRight: R, d: R, D: R, KeyD: R,
-      ArrowUp: U, w: U, W: U, KeyW: U,
-      ArrowDown: D, s: D, S: D, KeyS: D,
-    };
-    const dir = mapK[e.key] || mapK[e.code];
-    if (dir) { e.preventDefault(); setDir(dir); }
-  }, { passive: false });
-
-  window.addEventListener("keyup", (e) => {
-    if (e.code === "Space" || e.key === " ") { stopPump(); return; }
-    const mapK = {
-      ArrowLeft: L, a: L, A: L,
-      ArrowRight: R, d: R, D: R,
-      ArrowUp: U, w: U, W: U,
-      ArrowDown: D, s: D, S: D,
-    };
-    const dir = mapK[e.key];
-    if (dir) clearDir(dir);
-  });
-
-  let swipe = null;
-  canvas.tabIndex = 0;
-  canvas.style.outline = "none";
-  canvas.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    canvas.setPointerCapture?.(e.pointerId);
-    swipe = { x: e.clientX, y: e.clientY, id: e.pointerId };
-    unlockAudio();
-    if (state === "title" || state === "over") beginGame();
-    else if (state === "pause") { state = "play"; hideOV(); }
-  }, { passive: false });
-  canvas.addEventListener("pointermove", (e) => {
-    if (!swipe || swipe.id !== e.pointerId) return;
-    e.preventDefault();
-    const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
-    if (Math.hypot(dx, dy) > 18) {
-      setDir(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? R : L) : (dy > 0 ? D : U));
-      swipe.x = e.clientX; swipe.y = e.clientY;
-    }
-  }, { passive: false });
-  canvas.addEventListener("pointerup", (e) => {
-    if (swipe && swipe.id === e.pointerId) swipe = null;
-  });
-
-  overlay.style.pointerEvents = "auto";
-  overlay.addEventListener("click", () => {
-    unlockAudio();
-    if (state === "title" || state === "over") beginGame();
-    else if (state === "pause") { state = "play"; hideOV(); }
-  });
-
-  function bindHoldButton(el, onDown, onUp) {
-    if (!el) return;
-    const down = (e) => {
-      e.preventDefault(); e.stopPropagation();
-      if (el.classList.contains("active")) return;
-      el.classList.add("active");
-      el.setPointerCapture?.(e.pointerId);
-      unlockAudio();
-      onDown(e);
-    };
-    const up = (e) => {
-      if (!el.classList.contains("active")) return;
-      e.preventDefault?.(); e.stopPropagation?.();
-      el.classList.remove("active");
-      onUp(e);
-    };
-    el.addEventListener("pointerdown", down, { passive: false });
-    el.addEventListener("pointerup", up, { passive: false });
-    el.addEventListener("pointercancel", up, { passive: false });
-    el.addEventListener("lostpointercapture", up, { passive: false });
-    el.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); });
-  }
-
-  document.querySelectorAll(".dpad-btn[data-dir]").forEach((btn) => {
-    const d = DIR_BY_ID[btn.getAttribute("data-dir")];
-    bindHoldButton(btn, () => {
-      setDir(d);
-      if (state === "title" || state === "over") beginGame();
-      else if (state === "pause") { state = "play"; hideOV(); }
-    }, () => clearDir(d));
-  });
-
-  bindHoldButton(document.getElementById("btn-pause"), () => togglePauseOrStart(), () => {});
-  bindHoldButton(document.getElementById("btn-mute"), () => toggleMute(), () => {});
-  bindHoldButton(
-    document.getElementById("btn-pump"),
-    () => { if (state === "play") startPump(); else togglePauseOrStart(); },
-    () => stopPump()
-  );
-
-  document.getElementById("game-wrapper").addEventListener("touchmove", (e) => {
-    e.preventDefault();
-  }, { passive: false });
-
-  // Boot
-  $high.textContent = pad(high);
-  buildLevel(1);
-  state = "title";
-  showOV("DIG DUG", "INSERT COIN", null);
-  hud();
-  $lives.innerHTML = "";
-  prev = 0;
-  requestAnimationFrame(tick);
+/* ---------------- loop ---------------- */
+let last = performance.now(), accT = 0;
+function loop(t) {
+  accT += Math.min(100, t - last); last = t;
+  while (accT >= 1000 / FPS) { accT -= 1000 / FPS; if (!paused) update(); }
+  if (!paused) hurryTick();
+  draw();
+  requestAnimationFrame(loop);
+}
+// debug hooks used by the automated tests (?wave=N jumps straight to round N)
+const debug = {
+  skipIntro() { if (mode === "ready") { mode = "play"; modeT = 0; firstReady = false; } },
+  enemyAhead() { // put the nearest enemy two tiles ahead of Dig Dug in an open tunnel
+    const e = liveEnemies()[0]; if (!e) return; const p = player;
+    p.x = 96; p.y = ROW0 + 7 * 16; p.face = "R"; harpoon = null; digLine(6, 7, 8, 7);
+    e.x = 128; e.y = p.y; e.st = "move"; e.acc = -9999; e.ghostT = 99999; e.flee = false; hurryOn = false;
+  },
+  rockOverEnemy() { const e = liveEnemies()[0]; if (!e) return; e.x = 32; e.y = ROW0 + 11 * 16; e.st = "move"; e.acc = -9999; e.ghostT = 99999; digLine(2, 9, 2, 12);
+    rocks.push({ x: 32, y: ROW0 + 8 * 16, st: "idle", t: 0, crushed: [], fell: false }); },
+  clear() { enemies = []; },
+  veg() { rocksDropped = 2; vegSpawned = true; digLine(6, 7, 8, 7); player.x = 128; player.y = ROW0 + 7 * 16; player.face = "L"; veg = { x: 96, y: ROW0 + 7 * 16, t: 0, i: vegIndex(round) }; sfx.veg(); },
+  mode(m) { mode = m; },
+};
+window.DIGDUG = {
+  get state() { return { mode, round, score, lives, credits, high, rocksDropped, paused, muted,
+    player: player && { x: player.x, y: player.y, face: player.face, dead: player.dead },
+    enemies: enemies.map(e => ({ type: e.type, x: e.x, y: e.y, st: e.st, inflate: e.inflate })),
+    rocks: rocks.map(r => ({ x: r.x, y: r.y, st: r.st })), veg: veg && { i: veg.i, name: VEG[veg.i][0] }, harpoon: harpoon && { st: harpoon.st, len: harpoon.len }, walking: lastMoved, shots }; },
+  debug: DEBUG ? debug : undefined,
+};
+if (START_ROUND) { credits = 1; mode = "attract"; credits--; round = START_ROUND; score = 0; lives = 2; startRound(true); }
+requestAnimationFrame(loop);
 })();

@@ -1,73 +1,34 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#000000" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <title>DIG DUG — Namco 1982 (Build V5)</title>
-  <link rel="stylesheet" href="digdug-v5.css?v=digdug-orient1" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#000000" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 fill=%27%23dd6800%27/%3E%3Ccircle cx=%278%27 cy=%279%27 r=%275%27 fill=%27%23fa0500%27/%3E%3C/svg%3E" />
+<title>DIG DUG - 1982 Arcade</title>
+<link rel="stylesheet" href="style.css?v=6" />
 </head>
 <body>
-  <div id="game-wrapper">
-    <header id="hud">
-      <div class="hud-block">
-        <div class="label">1UP</div>
-        <div id="score">00</div>
-      </div>
-      <div class="hud-block">
-        <div class="label">HIGH SCORE</div>
-        <div id="high-score">00</div>
-      </div>
-      <div class="hud-block">
-        <div class="label">ROUND</div>
-        <div id="level">1</div>
-      </div>
-    </header>
-
-    <div id="canvas-wrap">
-      <canvas id="game" width="672" height="864"></canvas>
-      <div id="overlay">
-        <div id="overlay-title">DIG DUG</div>
-        <div id="overlay-sub">INSERT COIN</div>
-        <div id="overlay-hint">BUILD V5 — INSERT COIN — PRESS SPACE OR TAP</div>
-        <div id="overlay-controls">
-          ARROWS / WASD / D-PAD — MOVE &amp; DIG<br />
-          SPACE / HOLD PUMP — HARPOON, THEN INFLATE<br />
-          ROCKS CRUSH · LAST ENEMY FLEES TOP-LEFT<br />
-          M — MUTE · P — PAUSE
-        </div>
-      </div>
-    </div>
-
-    <footer id="footer">
-      <div id="lives"></div>
-      <div id="veg-tray"></div>
-    </footer>
-
-    <div id="mobile-controls" aria-label="Touch controls">
-      <div class="mobile-side">
-        <button type="button" id="btn-pause" class="mobile-btn" aria-label="Pause">❚❚</button>
-        <button type="button" id="btn-mute" class="mobile-btn" aria-label="Mute">♪</button>
-      </div>
-      <div id="dpad" role="group" aria-label="Direction pad">
-        <button type="button" class="dpad-btn" data-dir="U" aria-label="Up">▲</button>
-        <button type="button" class="dpad-btn" data-dir="L" aria-label="Left">◀</button>
-        <button type="button" class="dpad-btn dpad-center" disabled aria-hidden="true"></button>
-        <button type="button" class="dpad-btn" data-dir="R" aria-label="Right">▶</button>
-        <button type="button" class="dpad-btn" data-dir="D" aria-label="Down">▼</button>
-      </div>
-      <div class="mobile-side">
-        <button type="button" id="btn-pump" class="mobile-btn pump-btn" aria-label="Pump">P</button>
-      </div>
-    </div>
+<div id="game-wrapper">
+  <div id="topbar">
+    <a id="back-link" href="https://wethepeoplepress.com/games/">&larr; WTP ARCADE</a>
+    <button type="button" id="btn-pause" class="mini-btn" aria-label="Pause">PAUSE</button>
+    <button type="button" id="btn-mute" class="mini-btn" aria-label="Mute">SOUND ON</button>
   </div>
-
-  <script src="digdug-v5.js?v=5.0"></script>
+  <div id="canvas-wrap">
+    <canvas id="game" width="224" height="288" aria-label="Dig Dug game"></canvas>
+  </div>
+  <div id="help">ARROWS / WASD - MOVE &amp; DIG &middot; SPACE / CTRL - PUMP &middot; 5 - COIN &middot; ENTER / 1 - START &middot; P - PAUSE &middot; M - MUTE</div>
+  <div id="mobile-controls" aria-label="Touch controls">
+    <div id="dpad" aria-label="Direction pad">
+      <span class="dp" data-dir="U">&#9650;</span><span class="dp" data-dir="L">&#9664;</span>
+      <span class="dp" data-dir="R">&#9654;</span><span class="dp" data-dir="D">&#9660;</span>
+    </div>
+    <button type="button" id="btn-pump" aria-label="Pump">PUMP</button>
+  </div>
+</div>
+<script src="game.js?v=6"></script>
 </body>
 </html>
