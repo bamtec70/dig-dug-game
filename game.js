@@ -186,7 +186,7 @@ S.rockHalf = mk([
 S.galaxian = mk([
 "................","...B....B.......","...B....B.......","...BBBBBB.......","..RRBYYBRR......",".RRRBYYBRRR.....","RR.BBYYBB.RR....",
 "R..BYYYYB..R....","R...BYYB...R....","....B..B........","................","................","................","................","................","................"]);
-S.flowerS = mk([".W.","WYW",".W.",".G.","GG.",".G.",".G."]);
+S.flowerS = mk(["..W.W..",".WWWWW.","WWWRWWW",".WWWWW.","..W.W..","...G...","G..G...","GG.G...",".GGG.GG","...GGG.","...G..."]);
 S.flowerB = mk(["..R.R..",".RRRRR.","RRRYRRR",".RRRRR.","..R.R..","...G...",".G.G...","..GG.GG","...G...","...G..."]);
 const flip = {};
 function flipped(c) { if (flip[c.__id]) return flip[c.__id]; const f = document.createElement("canvas"); f.width = c.width; f.height = c.height;
@@ -721,8 +721,8 @@ function drawHUD() {
 }
 function drawFlowers() {
   let x = 216; const big = Math.floor(round / 10), small = round % 10;
-  for (let i = 0; i < small && x > 140; i++) { x -= 8; ctx.drawImage(S.flowerS, x + 2, 33); }
-  for (let i = 0; i < big && x > 140; i++) { x -= 10; ctx.drawImage(S.flowerB, x + 1, 30); }
+  for (let i = 0; i < small && x > 120; i++) { x -= 9; ctx.drawImage(S.flowerS, x + 1, 29); }
+  for (let i = 0; i < big && x > 120; i++) { x -= 12; ctx.drawImage(S.flowerB, x + 2, 30); }
 }
 function drawY(y) { return y < 48 ? y - (48 - y) / 2 : y; }
 function drawEnemy(e) {
