@@ -221,7 +221,7 @@ function setMute(m) { muted = m; localStorage.setItem("digdug_muted", m ? "1" : 
 if (muteBtn) { muteBtn.textContent = muted ? "SOUND OFF" : "SOUND ON"; muteBtn.addEventListener("click", e => { audio(); setMute(!muted); muteBtn.blur(); }); }
 const mf = n => 440 * Math.pow(2, (n - 69) / 12);
 function tone(f, t, dur, vol, w, f2) {
-  if (!AC || f <= 0) return;
+  if (!AC || f <= 0 || demo) return;
   const o = AC.createOscillator(), g = AC.createGain();
   if (w === "sq" || w === "triangle" || w === "sawtooth") o.type = w === "sq" ? "square" : w; else o.setPeriodicWave(w === 2 ? WAVE2 : WAVE);
   o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
@@ -229,7 +229,7 @@ function tone(f, t, dur, vol, w, f2) {
   o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
 }
 function noise(t, dur, vol, fc, fc2, q) {
-  if (!AC) return;
+  if (!AC || demo) return;
   const s = AC.createBufferSource(), f = AC.createBiquadFilter(), g = AC.createGain();
   s.buffer = noiseBuf; f.type = "bandpass"; f.Q.value = q || 1; f.frequency.setValueAtTime(fc, t); if (fc2) f.frequency.exponentialRampToValueAtTime(fc2, t + dur);
   g.gain.setValueAtTime(vol, t); g.gain.linearRampToValueAtTime(0, t + dur);
@@ -247,6 +247,7 @@ const WALK = [[76,1],[0,1],[81,1],[76,1],[76,1],[74,1],[72,1],[74,1],[67,1],[74,
 const WALK_BASS = [48,55,48,55,43,50,43,50,48,55,48,55,43,50,48,48];
 const WALK_STEP = 0.125;
 let walkPos = 0, walkAcc = 0;
+let demo = false, demoT = 0, dctl = { i: 0, t: 0, dir: null, n: 0 };
 function walkTick(dt) { // advance only while Dig Dug moves
   walkAcc -= dt;
   if (walkAcc > 0 || !AC) return;
@@ -399,6 +400,7 @@ let high = Math.max(+localStorage.getItem("digdug_high") || 0, table[0][0]);
 let entry = null;
 
 function addScore(n) {
+  if (demo) { score += n; return; } // attract demo: never touches extra lives, high score or the table
   score += n;
   if (score >= nextExtra) { lives++; sfx.extra(); nextExtra += nextExtra === 10000 ? 40000 : 40000; }
   if (score > high) { high = score; localStorage.setItem("digdug_high", String(high)); }
@@ -408,8 +410,8 @@ function startGame(r) {
   audio(); round = r || 1; score = 0; lives = 2; nextExtra = 10000; firstReady = true;
   sfx.start(); startRound(true);
 }
-function startRound(fresh) {
-  layout = genLayout(round);
+function startRound(fresh, L) {
+  layout = L || genLayout(round);
   buildDirt(round);
   for (const [a, b, c, d] of layout.tunnels) digLine(a, b, c, d);
   // centre shaft dug from the surface to row 7 and the start chamber
@@ -433,9 +435,53 @@ const eSpeed = () => Math.min(0.75, 0.38 + round * 0.025);
 const gSpeed = () => Math.min(0.55, 0.26 + round * 0.02);
 
 /* ---------------- input ---------------- */
+/* ---------------- attract mode (title -> character intro -> demo play -> best 5 -> loop) ---------------- */
+const T_TITLE = 600, T_CHARS = 1150, T_DEMO = T_TITLE + T_CHARS, T_HS = 2000, T_HS_END = 2420;
+const DEMO_LAYOUT = {
+  tunnels: [[1,2,1,6],[9,2,11,2],[2,10,5,10],[10,11,10,13]],
+  enemies: [["pooka",1,4],["pooka",10,2],["fygar",3,10],["pooka",10,12]],
+  rocks: [[4,3],[10,9],[12,6]],
+};
+// scripted joystick: [axis, grid target] | ["wait", frames] | ["fire", facing] | ["pump", timeout]
+const DEMO_SCRIPT = [["x",8],["y",10],["x",10],["link",10,10,11],["wait",30],["x",8],["wait",150],["fire",1],["wait",130],
+  ["x",5],["pump",260],["y",7],["x",1],["y",6],["pump",320],["wait",1400]];
+function startDemo() {
+  demo = true; demoT = 0; dctl = { i: 0, t: 0, dir: null, n: 0 };
+  round = 1; score = 0; lives = 2; firstReady = false; held.length = 0; touchDir = null; pumpHeld = false;
+  startRound(true, DEMO_LAYOUT);
+  enemies.forEach((e, i) => { e.ghostT = 1e9; e.frozen = i >= 2; });
+  modeT = 40;
+}
+function endDemo(toHi) {
+  demo = false; harpoon = null; enemies = []; rocks = []; pops = []; veg = null; hurryOn = false; player = null;
+  round = 1; score = 0; lives = 2; paused = false;
+  mode = "attract"; modeT = toHi ? T_HS : 0;
+}
+function exitAttract() { // any key / tap: leave the attract sequence instantly and show the title / coin screen
+  if (demo) endDemo(false); else if (mode === "attract" && modeT > 0) modeT = 0;
+}
+addEventListener("keydown", () => exitAttract(), true);
+addEventListener("pointerdown", () => exitAttract(), true);
+function demoDrive() {
+  demoT++; dctl.dir = null; pumpEdge = false; pumpHeld = false;
+  const a = DEMO_SCRIPT[dctl.i]; if (!a || !player) return;
+  dctl.t++; const next = () => { dctl.i++; dctl.t = 0; };
+  if (a[0] === "x" || a[0] === "y") {
+    const tgt = a[0] === "x" ? a[1] * 16 : ROW0 + a[1] * 16, cur = a[0] === "x" ? player.x : player.y;
+    if (cur === tgt || dctl.t > 400) next(); else dctl.dir = a[0] === "x" ? (tgt > cur ? "R" : "L") : (tgt > cur ? "D" : "U");
+  } else if (a[0] === "wait") { if (dctl.t >= a[1]) next(); }
+  else if (a[0] === "link") { digLine(a[1], a[2], a[1], a[3]); next(); } // join the dug cell to the shaft below the rock
+  else if (a[0] === "fire") { const f = enemies.find(e => e.type === "fygar" && e.st === "move"); if (f) { f.fx = a[1]; f.st = "fire"; f.t = 0; } next(); }
+  else if (a[0] === "pump") {
+    if (dctl.t === 1) dctl.n = liveEnemies().length;
+    if (liveEnemies().length < dctl.n || dctl.t > a[1]) { next(); return; }
+    if (!harpoon) { if (dctl.t % 24 === 2) pumpEdge = true; } else if (harpoon.st === "hold" && dctl.t % 8 === 0) pumpEdge = true;
+  }
+}
+
 const held = []; let pumpHeld = false, pumpEdge = false, touchDir = null;
 const KEYDIR = { ArrowUp: "U", KeyW: "U", ArrowDown: "D", KeyS: "D", ArrowLeft: "L", KeyA: "L", ArrowRight: "R", KeyD: "R" };
-function curDir() { if (touchDir) return touchDir; return held.length ? held[held.length - 1] : null; }
+function curDir() { if (demo) return dctl.dir; if (touchDir) return touchDir; return held.length ? held[held.length - 1] : null; }
 addEventListener("keydown", e => {
   audio();
   const d = KEYDIR[e.code];
@@ -487,7 +533,7 @@ if (pumpBtn) {
   pumpBtn.addEventListener("pointerup", up); pumpBtn.addEventListener("pointercancel", up); pumpBtn.addEventListener("lostpointercapture", up);
 }
 cv.addEventListener("pointerdown", e => { audio(); if (e.pointerType !== "mouse") setTouch(); if (mode === "attract") { if (credits) pressStart(); else coin(); } });
-const pb = document.getElementById("btn-pause"); if (pb) pb.addEventListener("click", () => { if (mode !== "attract") paused = !paused; pb.blur(); });
+const pb = document.getElementById("btn-pause"); if (pb) pb.addEventListener("click", () => { if (mode !== "attract" && !demo) paused = !paused; pb.blur(); });
 document.addEventListener("touchstart", e => { if (!e.target.closest("#topbar")) e.preventDefault(); }, { passive: false });
 document.addEventListener("touchmove", e => e.preventDefault(), { passive: false });
 document.addEventListener("gesturestart", e => e.preventDefault());
@@ -572,6 +618,7 @@ function stepEnemies() {
   for (const e of enemies) {
     e.t++; e.anim++;
     if (e.st === "move") {
+      if (e.frozen) continue;
       e.acc += eSpeed();
       if (aligned(e.x) && alignedY(e.y) && --e.ghostT <= 0 && player.dead === 0) { e.st = "ghost"; e.gx = e.x; e.gy = e.y; e.t = 0; e.from = e.x + "," + e.y; continue; }
       while (e.acc >= 1) {
@@ -669,20 +716,26 @@ function killPlayer(rock) {
 function update() {
   frame++; modeT++;
   for (const p of pops) p.t++; pops = pops.filter(p => p.t < 70);
-  if (mode === "attract") { return; }
+  if (mode === "attract") {
+    if (credits && modeT >= T_TITLE) modeT = T_TITLE - 180; // a credit holds the PUSH START screen
+    if (modeT === T_DEMO) startDemo(); else if (modeT >= T_HS_END) modeT = 0;
+    return;
+  }
   if (mode === "ready") { if (modeT > (firstReady ? 150 : 100)) { mode = "play"; modeT = 0; firstReady = false; } pumpEdge = false; return; }
   if (mode === "play") {
+    if (demo) { demoDrive(); if (demoT > 3000) { endDemo(true); return; } }
     stepPlayer(); stepEnemies(); if (mode !== "play") { pumpEdge = false; return; } stepRocks();
     if (!enemies.length && mode === "play") { mode = "clear"; modeT = 0; harpoon = null; sfx.clear(); }
   } else if (mode === "dying") {
     for (const r of rocks) if (r.st === "fall" || r.st === "crumble") { r.t++; if (r.st === "fall") { r.y = Math.min(r.y + 2, 256); if (!isDug(r.x + 8, r.y + 17) || r.y >= 256) land(r); } else if (r.t > 36) r.dead = true; }
     rocks = rocks.filter(r => !r.dead);
+    if (modeT > 170 && demo) { endDemo(true); return; }
     if (modeT > 170) {
       if (lives > 0) { lives--; const keep = enemies.length; spawnActors(); enemies = enemies.slice(0, Math.max(keep, 0)); if (!enemies.length) { mode = "clear"; modeT = 0; } }
       else { mode = "over"; modeT = 0; sfx.over(); }
     }
   } else if (mode === "clear") {
-    if (modeT > 170) { round++; startRound(false); }
+    if (modeT > 170) { if (demo) { endDemo(true); return; } round++; startRound(false); }
   } else if (mode === "over") {
     if (modeT > 200) {
       const rank = table.findIndex(t => score > t[0]);
@@ -796,36 +849,105 @@ function drawPlay() {
     }
   }
   for (const pp of pops) text(pp.txt, pp.x, drawY(pp.y) + 4 - Math.min(pp.t, 20) / 5, WHITE, "c");
-  if (mode === "ready") { if (firstReady) text("PLAYER 1", 112, 128, WHITE, "c"); text("READY", 112, 168, WHITE, "c"); }
+  if (mode === "ready" && !demo) { if (firstReady) text("PLAYER 1", 112, 128, WHITE, "c"); text("READY", 112, 168, WHITE, "c"); }
   if (mode === "over" || mode === "dying" && lives === 0 && modeT > 150) text("GAME OVER", 112, 168, WHITE, "c");
   if (paused) text("PAUSE", 112, 168, WHITE, "c");
 }
 function drawLogo(y) {
-  // roof
-  ctx.fillStyle = "#ff6eb4";
-  for (let i = 0; i < 5; i++) { const x = 36 + i * 32; ctx.beginPath(); ctx.moveTo(x - 2, y + 14); ctx.lineTo(x + 18, y); ctx.lineTo(x + 34, y + 14); ctx.lineTo(x + 26, y + 14); ctx.lineTo(x + 18, y + 7); ctx.lineTo(x + 6, y + 14); ctx.fill(); }
-  // letters, big
-  const str = "DIG DUG"; ctx.fillStyle = "#ff8c00";
-  for (let i = 0; i < str.length; i++) { const g = GLYPH[str[i]]; if (!g) continue;
-    for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (g[r] & (16 >> c)) ctx.fillRect(28 + i * 24 + c * 4, y + 16 + r * 4, 4, 4); }
+  // pink gabled roofs over chunky yellow letters with a dark-orange drop edge (own pixel art)
+  const str = "DIG DUG";
+  for (let i = 0; i < str.length; i++) { if (str[i] === " ") continue; const x = 26 + i * 24;
+    ctx.fillStyle = "#c8389a"; ctx.beginPath(); ctx.moveTo(x - 3, y + 15); ctx.lineTo(x + 10, y + 2); ctx.lineTo(x + 23, y + 15); ctx.fill();
+    ctx.fillStyle = "#ff8ed0"; ctx.beginPath(); ctx.moveTo(x - 1, y + 13); ctx.lineTo(x + 10, y + 2); ctx.lineTo(x + 21, y + 13); ctx.fill(); }
+  for (const [col, ox, oy] of [["#b04000", 2, 2], ["#ffe020", 0, 0]]) { ctx.fillStyle = col;
+    for (let i = 0; i < str.length; i++) { const g = GLYPH[str[i]]; if (!g) continue;
+      for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (g[r] & (16 >> c)) ctx.fillRect(26 + i * 24 + c * 4 + ox, y + 16 + r * 4 + oy, 4, 4); } }
+}
+// title: Dig Dug digs a tunnel from the surface down and under the logo while a Pooka and Fygar stroll above
+const TITLE_PATH = [[8, 30], [24, 30], [24, 104], [120, 104]];
+function pathAt(d) {
+  let acc = 0;
+  for (let i = 1; i < TITLE_PATH.length; i++) { const [x0, y0] = TITLE_PATH[i - 1], [x1, y1] = TITLE_PATH[i], L = Math.abs(x1 - x0) + Math.abs(y1 - y0);
+    if (d <= acc + L) { const f = (d - acc) / L; return [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, x1 > x0 ? "R" : x1 < x0 ? "L" : y1 > y0 ? "D" : "U", i]; }
+    acc += L; }
+  const e = TITLE_PATH[TITLE_PATH.length - 1]; return [e[0], e[1], "R", TITLE_PATH.length];
+}
+function drawTitle(t) {
+  ctx.fillStyle = "#000197"; ctx.fillRect(0, 16, W, 30);
+  ctx.fillStyle = "#dede00"; ctx.fillRect(0, 46, W, 226);
+  ctx.fillStyle = "#b8a000"; for (let y = 50; y < 272; y += 6) for (let x = (y / 6 & 1) * 3; x < W; x += 6) ctx.fillRect(x, y, 1, 1);
+  const d = Math.max(0, Math.min(400, (t - 20) * 0.75)), [px, py, face, seg] = pathAt(d);
+  ctx.fillStyle = "#000";
+  for (let i = 1; i <= Math.min(seg, TITLE_PATH.length - 1); i++) {
+    const [x0, y0] = TITLE_PATH[i - 1], [ex, ey] = i < seg ? TITLE_PATH[i] : [px, py];
+    const top = Math.max(46, Math.min(y0, ey) - 6), bot = Math.max(y0, ey) + 6;
+    if (bot > top) ctx.fillRect(Math.min(x0, ex) - 6, top, Math.abs(ex - x0) + 12, bot - top); }
+  drawLogo(52);
+  spr(S.dd[(t >> 3) & 1], px - 8, py - 8, face);
+  const wx = 230 - ((t * 0.4) % 290);
+  spr(S.fygar[(t >> 4) & 1], wx, 22, "L"); spr(S.pooka[(t >> 4) & 1], wx + 24, 22, "L");
+  ctx.fillStyle = "#ff2000"; ctx.fillRect(150, 20, 52, 9); text("TRIBUTE", 176, 21, "#ffffff", "c");
+  // big character portraits
+  spr(S.dd[(t >> 4) & 1], 40, 160, "R", 3); spr(S.pooka[(t >> 4) & 1], 112, 166, "L", 2.2); spr(S.fygar[(t >> 4) & 1], 168, 156, "L", 3.2);
+  text(credits ? "PUSH START BUTTON" : "INSERT COIN", 112, 204, (t >> 5) & 1 ? "#000197" : "#ff0000", "c");
+  text("1 PLAYER  1 COIN", 112, 218, "#000197", "c");
+  text("1ST BONUS 10000 PTS", 112, 230, "#000197", "c");
+  text("AND EVERY 40000 PTS", 112, 240, "#000197", "c");
+  text("© 1982 STYLE FAN TRIBUTE", 112, 256, "#000197", "c");
+}
+// character introduction + scoring demonstration
+function drawChars(t) {
+  drawLogo(30);
+  text("CHARACTER", 112, 94, "#ffe020", "c");
+  const Y = 128, DX = Math.max(104, 224 - t);
+  const ddFace = t < 120 ? "L" : t < 440 ? "L" : "R", walking = t < 120;
+  // Pooka: appears, gets pumped and bursts
+  if (t >= 130) {
+    if (t < 410) { const inf = t < 290 ? 0 : Math.min(4, 1 + ((t - 290) / 30 | 0)); spr(S.pooka[(t >> 4) & 1], 40, Y, "R", 1 + inf * 0.22); }
+    else if (t < 434) { ctx.fillStyle = WHITE; for (let a = 0; a < 8; a++) { const r = 6 + (t - 410); ctx.fillRect(48 + Math.cos(a * 0.785) * r, Y + 8 + Math.sin(a * 0.785) * r, 2, 2); } }
+    if (t >= 410 && t < 540) text("200", 48, Y + 2, WHITE, "c");
+    text("POOKA", 48, Y + 28, "#ffe020", "c");
+  }
+  // harpoon from Dig Dug to the Pooka
+  if (t >= 260 && t < 410) { const L = Math.min(44, (t - 260) * 4); ctx.fillStyle = WHITE; ctx.fillRect(DX - L, Y + 9, L, 1); ctx.fillStyle = "#ff4040"; ctx.fillRect(DX - L - 2, Y + 8, 3, 3); }
+  spr(t >= 260 && t < 410 ? S.ddPump : S.dd[walking ? (t >> 3) & 1 : 0], DX, Y, ddFace);
+  // Fygar: appears, flashes, breathes fire, then a rock drops on it
+  if (t >= 190) {
+    const crushed = t >= 668, fy = 168;
+    if (!crushed) {
+      const flashing = t >= 460 && t < 496;
+      if (!flashing || ((t >> 2) & 1)) spr(S.fygar[(t >> 4) & 1], fy, Y, "L");
+      if (t >= 496 && t < 590) { const len = t < 508 ? 16 : t < 520 ? 32 : 48, fx0 = fy + 2 - len;
+        for (let i = 0; i < len; i += 4) { const h = 3 + Math.min(i, len - i) / 3 + ((i + frame) & 2);
+          ctx.fillStyle = i % 8 ? "#ff2000" : "#ffb800"; ctx.fillRect(fx0 + i, Y + 8 - h / 2, 4, h); ctx.fillStyle = "#ffff80"; ctx.fillRect(fx0 + i + 1, Y + 7, 2, 2); } }
+    } else if (t < 720) spr(S.fygar[0], fy, Y + 4, "L", 1, 0.5);
+    if (t >= 610) { // rock: wobble, fall, crumble
+      const ry = t < 650 ? Y - 40 : Math.min(Y - 6, Y - 40 + (t - 650) * 2), ox = t < 650 ? ((t >> 2) & 1 ? 1 : -1) : 0;
+      if (t < 700) ctx.drawImage(S.rock, fy + ox, ry); else if (t < 740 && (t >> 2) & 1) ctx.drawImage(S.rockHalf, fy, Y - 6);
+    }
+    if (t >= 700 && t < 860) text("1000", 176, Y + 2, WHITE, "c");
+    text("FYGAR", 176, Y + 28, "#ffe020", "c");
+  }
+  if (t >= 760) {
+    text("PUMP  200 - 1000 PTS", 112, 176, "#dedede", "c");
+    text("ROCK  1000 - 15000 PTS", 112, 190, "#dedede", "c");
+  }
+  text("© 1982 STYLE TRIBUTE", 112, 222, "#dedede", "c");
+  text("FAN MADE - WTP ARCADE", 112, 238, "#ff2000", "c");
+}
+function drawBest5() {
+  drawLogo(30);
+  text("BEST 5", 112, 100, "#ff0000", "c");
+  text("SCORE", 104, 120, "#ffe020", "r"); text("NAME", 136, 120, "#ffe020");
+  const ord = ["1ST", "2ND", "3RD", "4TH", "5TH"];
+  table.forEach((t, i) => { const y = 140 + i * 18; text(ord[i], 24, y, "#dedede"); text(String(t[0]), 112, y, "#dedede", "r"); text(t[1], 144, y, "#ff0000"); });
+  text("© 1982 STYLE TRIBUTE", 112, 240, "#dedede", "c");
 }
 function drawAttract() {
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#000197"; ctx.fillRect(0, 16, W, 30);
-  ctx.fillStyle = "#dede00"; ctx.fillRect(0, 46, W, 226);
-  drawLogo(56);
-  const ph = Math.floor(modeT / 360) % 2;
-  if (ph === 0) {
-    spr(S.dd[(frame >> 3) & 1], 40, 150, "R", 2); spr(S.pooka[(frame >> 4) & 1], 112, 158, "L", 1.5); spr(S.fygar[(frame >> 4) & 1], 168, 150, "L", 2);
-    text(credits ? "PUSH START BUTTON" : "INSERT COIN", 112, 196, (frame >> 5) & 1 ? "#000197" : "#ff0000", "c");
-    text("1 PLAYER  1 COIN", 112, 214, "#000197", "c");
-    text("1ST BONUS 10000 PTS", 112, 232, "#000197", "c");
-    text("AND EVERY 40000 PTS", 112, 244, "#000197", "c");
-  } else {
-    text("BEST 5", 112, 128, "#ff0000", "c");
-    table.forEach((t, i) => { text((i + 1) + ".", 40, 148 + i * 16, "#000197"); text(String(t[0]), 136, 148 + i * 16, "#000197", "r"); text(t[1], 152, 148 + i * 16, "#ff0000"); });
-  }
-  text("TRIBUTE  1982 STYLE", 112, 260, "#000197", "c");
+  if (modeT < T_TITLE) drawTitle(modeT);
+  else if (modeT < T_DEMO) drawChars(modeT - T_TITLE);
+  else drawBest5();
   text("CREDIT " + credits, 16, 272, WHITE);
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, 16);
   drawHUD();
@@ -868,7 +990,8 @@ const debug = {
   mode(m) { mode = m; },
 };
 window.DIGDUG = {
-  get state() { return { mode, round, score, lives, credits, high, rocksDropped, paused, muted,
+  get state() { return { mode, demo, attract: mode === "attract" ? (modeT < T_TITLE ? "title" : modeT < T_DEMO ? "characters" : "best5") : demo ? "demo" : null,
+    demoStep: dctl.i, table: table.map(t => t.slice()), round, score, lives, credits, high, rocksDropped, paused, muted,
     player: player && { x: player.x, y: player.y, face: player.face, dead: player.dead },
     enemies: enemies.map(e => ({ type: e.type, x: e.x, y: e.y, st: e.st, inflate: e.inflate })),
     rocks: rocks.map(r => ({ x: r.x, y: r.y, st: r.st })), veg: veg && { i: veg.i, name: VEG[veg.i][0] }, harpoon: harpoon && { st: harpoon.st, len: harpoon.len }, walking: lastMoved, shots }; },

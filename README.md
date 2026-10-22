@@ -21,6 +21,7 @@ Native 224×288 portrait screen (the cabinet's resolution), pixel-scaled. Every 
 - Bonus vegetable after 2 dropped rocks: carrot 400, turnip 600, mushroom 800, cucumber 1000, eggplant 2000, pepper 3000, tomato 4000, onion 5000, watermelon 6000, Galaxian 7000, pineapple 8000.
 - Enemies turn into ghost eyes and drift through dirt; the last enemy flees to the top-left with the hurry-up music.
 - Walking music plays only while Dig Dug moves. Flowers count rounds (small = 1, big = 10). Extra life at 10,000, then every 40,000. Best-5 table with initials.
+- Attract loop (build 7): title (Dig Dug tunnels under the logo) → CHARACTER intro (Pooka pumped to 200, Fygar fire, rock drop for 1000) → scripted demo round (dig, rock crush, pump Fygar and Pooka; scores never saved) → BEST 5 → repeat. Any key or tap exits instantly.
 
 Debug: `?wave=N` (or `?round=N`) starts directly at round N; with it, the backquote key clears the round.
 
