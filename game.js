@@ -202,10 +202,11 @@ function spr(c, x, y, face, sx, sy) {
 
 /* ---------------- audio: Namco WSG-like wavetable synth ---------------- */
 let AC = null, master = null, WAVE = null, WAVE2 = null, noiseBuf = null;
-let muted = localStorage.getItem("digdug_muted") === "1";
+localStorage.removeItem("digdug_muted"); /* build 8: legacy key could be stuck on; sound ON by default */
+let muted = localStorage.getItem("digdug_muted_v8") === "1";
 const muteBtn = document.getElementById("btn-mute");
 function audio() {
-  if (AC) { if (AC.state === "suspended") AC.resume(); return; }
+  if (AC) { if (AC.state !== "running" && AC.resume) AC.resume().catch(() => {}); if (master) master.gain.value = muted ? 0 : 0.32; return; }
   try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
   master = AC.createGain(); master.gain.value = muted ? 0 : 0.32; master.connect(AC.destination);
   // 32-sample 4-bit style waves rebuilt as harmonic series (bright pulse-ish lead, soft bass)
@@ -217,7 +218,7 @@ function audio() {
   const d = noiseBuf.getChannelData(0); let v = 0;
   for (let i = 0; i < d.length; i++) { if (i % 3 === 0) v = Math.random() * 2 - 1; d[i] = v; }
 }
-function setMute(m) { muted = m; localStorage.setItem("digdug_muted", m ? "1" : "0"); if (master) master.gain.value = m ? 0 : 0.32; if (muteBtn) muteBtn.textContent = m ? "SOUND OFF" : "SOUND ON"; }
+function setMute(m) { muted = m; localStorage.setItem("digdug_muted_v8", m ? "1" : "0"); if (master) master.gain.value = m ? 0 : 0.32; if (muteBtn) muteBtn.textContent = m ? "SOUND OFF" : "SOUND ON"; }
 if (muteBtn) { muteBtn.textContent = muted ? "SOUND OFF" : "SOUND ON"; muteBtn.addEventListener("click", e => { audio(); setMute(!muted); muteBtn.blur(); }); }
 const mf = n => 440 * Math.pow(2, (n - 69) / 12);
 function tone(f, t, dur, vol, w, f2) {
@@ -486,6 +487,7 @@ addEventListener("keydown", e => {
   audio();
   const d = KEYDIR[e.code];
   if (d) { e.preventDefault(); if (!held.includes(d)) held.push(d); if (mode === "entry") entryKey(d); return; }
+  if (mode === "entry" && /^Key[A-Z]$/.test(e.code) && !KEYDIR[e.code]) { e.preventDefault(); if (!e.repeat) entryKey("=" + e.code[3]); return; }
   if (e.code === "Space" || e.code === "ControlLeft" || e.code === "ControlRight") { e.preventDefault(); if (!e.repeat) { pumpEdge = true; if (mode === "entry") entryKey("OK"); } pumpHeld = true; return; }
   if (e.repeat) return;
   if (e.code === "Digit5" || e.code === "Numpad5") coin();
@@ -739,7 +741,7 @@ function update() {
   } else if (mode === "over") {
     if (modeT > 200) {
       const rank = table.findIndex(t => score > t[0]);
-      if (rank >= 0) { entry = { rank, chars: [0, 0, 0], pos: 0 }; mode = "entry"; modeT = 0; sfx.hiscore(); }
+      if (rank >= 0) { entry = { rank, chars: [0, 0, 0], pos: 0 }; mode = "entry"; modeT = 0; pumpEdge = false; held.length = 0; sfx.hiscore(); /* build 8: stale pump/dir input cannot skip initial 1 */ }
       else { mode = "attract"; modeT = 0; }
     }
   }
@@ -747,7 +749,8 @@ function update() {
 }
 const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ. ";
 function entryKey(k) {
-  if (!entry) return;
+  if (!entry || mode !== "entry" || modeT < 30) return; /* 0.5 s guard */
+  if (k.length === 2 && k[0] === "=") { const i = ALPHA.indexOf(k[1]); if (i >= 0) { entry.chars[entry.pos] = i; k = "OK"; } else return; }
   const c = entry.chars;
   if (k === "U") c[entry.pos] = (c[entry.pos] + 1) % ALPHA.length;
   else if (k === "D") c[entry.pos] = (c[entry.pos] + ALPHA.length - 1) % ALPHA.length;
@@ -988,6 +991,8 @@ const debug = {
   clear() { enemies = []; },
   veg() { rocksDropped = 2; vegSpawned = true; digLine(6, 7, 8, 7); player.x = 128; player.y = ROW0 + 7 * 16; player.face = "L"; veg = { x: 96, y: ROW0 + 7 * 16, t: 0, i: vegIndex(round) }; sfx.veg(); },
   mode(m) { mode = m; },
+  setScore(n) { score = n; },
+  endGame() { lives = 0; killPlayer(); },
 };
 window.DIGDUG = {
   get state() { return { mode, demo, attract: mode === "attract" ? (modeT < T_TITLE ? "title" : modeT < T_DEMO ? "characters" : "best5") : demo ? "demo" : null,
@@ -995,8 +1000,40 @@ window.DIGDUG = {
     player: player && { x: player.x, y: player.y, face: player.face, dead: player.dead },
     enemies: enemies.map(e => ({ type: e.type, x: e.x, y: e.y, st: e.st, inflate: e.inflate })),
     rocks: rocks.map(r => ({ x: r.x, y: r.y, st: r.st })), veg: veg && { i: veg.i, name: VEG[veg.i][0] }, harpoon: harpoon && { st: harpoon.st, len: harpoon.len }, walking: lastMoved, shots }; },
+  build: 8, audio: () => (AC ? AC.state : "none"), entry: () => entry && { pos: entry.pos, letters: entry.chars.map(i => ALPHA[i]).join(""), t: modeT },
   debug: DEBUG ? debug : undefined,
 };
 if (START_ROUND) { credits = 1; mode = "attract"; credits--; round = START_ROUND; score = 0; lives = 2; startRound(true); }
 requestAnimationFrame(loop);
+  // -- Audio unlock (sound ON by default): first tap/click/key anywhere resumes Web Audio --
+  (function () {
+    function silentWav() {
+      const n = 800, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+      const s = (o, t) => { for (let i = 0; i < t.length; i++) b[o + i] = t.charCodeAt(i); };
+      s(0, "RIFF"); v.setUint32(4, 36 + n, true); s(8, "WAVEfmt "); v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+      v.setUint16(32, 1, true); v.setUint16(34, 8, true); s(36, "data"); v.setUint32(40, n, true); b.fill(128, 44);
+      let str = ""; for (let i = 0; i < b.length; i++) str += String.fromCharCode(b[i]);
+      return "data:audio/wav;base64," + btoa(str);
+    }
+    let tag = null, kicked = null;
+    function onGesture() {
+      try { if (navigator.audioSession && navigator.audioSession.type !== "playback") navigator.audioSession.type = "playback"; } catch (_) {}
+      try { if (!tag) { tag = new Audio(silentWav()); tag.setAttribute("playsinline", ""); tag.loop = true; tag.volume = 0.01; } if (tag.paused) { const p = tag.play(); if (p && p.catch) p.catch(function () {}); } } catch (_) {}
+      try { audio(); } catch (_) {}
+      try {
+        const c = AC;
+        if (c) {
+          if (c.state !== "running" && c.resume) c.resume().catch(function () {});
+          if (kicked !== c) { kicked = c; const sb = c.createBuffer(1, 1, 22050), src = c.createBufferSource(); src.buffer = sb; src.connect(c.destination); src.start(0); }
+        }
+      } catch (_) {}
+    }
+    ["pointerdown", "touchstart", "touchend", "mousedown", "click", "keydown"].forEach(function (t) {
+      window.addEventListener(t, onGesture, { capture: true, passive: true });
+    });
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) { try { const c = AC; if (c && c.state === "suspended") c.resume().catch(function () {}); } catch (_) {} } });
+    window.__audioInfo = function () { const c = AC; return { ctx: c ? c.state : "none", muted: muted }; };
+  })();
+
 })();
